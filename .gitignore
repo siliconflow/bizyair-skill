@@ -1,0 +1,10 @@
+# Runtime & temp
+.tmp/
+__pycache__/
+
+# OS
+.DS_Store
+
+# Internal test docs
+tests/
+

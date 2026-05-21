@@ -1,0 +1,84 @@
+# 01 资源检索与搜索
+
+用于公开资源的检索、列表、详情查询，以及候选搜索与推荐。
+
+## 适用范围
+
+- 模型社区、官方模型、工作流、AI 应用
+- 作品、MCP
+- modelzoo 列表、详情、价格（详见 04-modelzoo-tasks.md）
+
+## 常用查询入口
+
+### 全局多类型搜索
+
+```bash
+python3 scripts/cli.py search "<关键词>" --remote
+```
+
+### 社区列表
+
+```bash
+python3 scripts/cli.py browse --remote-source community --modality Application --sort "Most Used"
+```
+
+### 官方列表
+
+```bash
+python3 scripts/cli.py browse --remote-source official --sort Auto
+```
+
+### 资源详情（按类型分流）
+
+```bash
+python3 scripts/cli.py info <链接或ID>
+```
+
+内部自动按类型路由：
+- **Application** → 查 webapp 接口（返回 `web_app_id` + `input_nodes`）
+- **Workflow / Official** → 查 detail 接口（返回 `versions[]`，无 input_nodes）
+- **comfy-ui 链接** → 提示用户不支持运行，引导找 AI 应用链接
+
+判断依据：列表每条都带 `model_type` 字段。
+
+## 固定模型菜单
+
+图片 6 项（5 模型 + 1 搜索）/ 视频 6 项（5 模型 + 1 搜索）的固定菜单路由定义在 `config/routes.json`。
+
+触发：
+```bash
+python3 scripts/cli.py image-menu
+python3 scripts/cli.py video-menu
+```
+
+菜单文案在 `config/menus.json`，agent 必须实际调脚本输出菜单，不能凭记忆合成。
+
+路由规则：
+- 1-5（图片）/ v1-v5（视频）：固定模型，给参数卡后执行
+- 6（图片）/ v6（视频）：站内检索入口
+
+## 候选搜索
+
+```bash
+python3 scripts/cli.py pick-image "<短词1, 短词2, 短词3, 短词4, 短词5>" --remote --reply-format json
+python3 scripts/cli.py pick-video "<短词1, 短词2, 短词3, 短词4, 短词5>" --remote --reply-format json
+```
+
+### 搜索词规则
+
+- 中文优先，英文技术词作补充
+- 单次最多 5 个短词，脚本按顺序逐个检索
+- 复合词（如 ChatGPT Image2）必须同时给短子词（image2, gpt image, openai）
+- 搜索词越简单越好，由窄到宽降维
+
+### 结果清洗
+
+- 跨模态砍掉（要图不给视频）
+- 低质量砍掉
+- 去重存优，默认保留 10 个候选
+
+### 输出格式
+
+脚本返回 `reply_markdown` 字段，agent **必须 100% 原样转发**，不要重写或合并。
+
+每个候选 6 项信息：标题 / 最适合做什么 / 封面图 / 能否直接执行 / 链接 / ID。
