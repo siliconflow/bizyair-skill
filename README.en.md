@@ -50,7 +50,7 @@
 ## ⭐️ Prerequisites
 
 - **Python 3.9+**
-- A BizyAir API key ready (for details, see the [BizyAir User Handbook](https://siliconflow.feishu.cn/wiki/RsoiwFqhUib1iEktf0BcjQMFnef) - `6. MCP Calls / MCP Publishing / API Calls`)
+- A BizyAir API key ready (sign in, hover over your avatar in the top-right corner, then click ["API Keys"](https://bizyair.cn/user/api-key) to create one)
 - Sufficient BizyAir balance in your account
 
 ---

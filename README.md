@@ -50,7 +50,7 @@
 ## ⭐️ 前置条件
 
 - **Python 3.9+**
-- 已准备 BizyAir API key （ 具体方式详情见：[BizyAir 用户工具书](https://siliconflow.feishu.cn/wiki/RsoiwFqhUib1iEktf0BcjQMFnef)-`6. MCP调用/MCP发布/API调用` ）
+- 已准备 BizyAir API key（登录账号后，将鼠标悬停在右上角头像上，点击[「API 密钥」](https://bizyair.cn/user/api-key)即可创建）
 - 账户内有可用算力余额
 
 ---
