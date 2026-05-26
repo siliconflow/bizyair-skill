@@ -163,7 +163,7 @@ For example, you can say:
 > "Help me inspect this BizyAir app: https://bizyair.cn/community/app/46086"
 
 The assistant will respond like:
-> "The inspection report is ready — this workflow looks healthy.
+> "All checked. This workflow looks healthy.
 >
 > - **What it does**: it's a **Wai-Illustrious anime text-to-image workflow**, with HD upscaling and hand/face repair.
 > - **What you need to provide**: no base image needed, just a solid prompt.

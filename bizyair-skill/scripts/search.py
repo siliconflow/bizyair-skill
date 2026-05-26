@@ -88,9 +88,9 @@ def candidate_fit_summary(item: dict[str, Any], modality: str | None) -> str:
 
 def build_candidate_reply_markdown(candidates: list[dict[str, Any]], *, modality: str | None=None) -> str:
     if not candidates:
-        return f'📭 **这轮暂时还没找到明显对路的 BizyAir 对象**\n我换词试了几轮，当前还是没有特别贴题的结果。\n\n你可以换个更短一点的说法再试～'
-    heading = '🎯 **给你捞了几个更对路的 BizyAir 对象**'
-    intro = '我先把明显不贴题的过滤掉了，下面这几个更值得看：'
+        return f'📭 **没找到合适的 BizyAir 对象**\n当前关键词没匹配到结果。\n\n可以换个更具体的说法再试一次。'
+    heading = '🎯 **找到几个 BizyAir 对象**'
+    intro = '已过滤掉明显不相关的，下面这几个更值得看：'
     lines = [heading, '', intro, '']
     for (idx, item) in enumerate(candidates, start=1):
         title = item.get('name') or item.get('title') or f"BizyAir 对象 {item.get('id')}"

@@ -162,7 +162,7 @@ def cmd_run(args: argparse.Namespace):
         execution_target = preflight.get('execution_target') or {}
         runtime_webapp = api.extract_result_data(execution_target.get('webapp_detail'))
         if not execution_target.get('supported'):
-            print(json.dumps({'error': 'REMOTE_APP_RUN_NOT_SUPPORTED', 'message': raw_app, 'detail': execution_target.get('message') or '我已经帮你把它的底层要求和参数理顺啦～不过目前它还不支持直接代跑，这次咱们就先不动手，你可以拿着整理好的参数去网页端跑跑看。', 'reason': execution_target.get('reason'), 'support_scope': execution_target.get('support_scope'), 'preflight': {'id_diagnosis': id_diagnosis, 'summary': preflight_summary}}, ensure_ascii=False, indent=2), file=sys.stderr)
+            print(json.dumps({'error': 'REMOTE_APP_RUN_NOT_SUPPORTED', 'message': raw_app, 'detail': execution_target.get('message') or '参数和说明都拿到了，但这个对象目前不支持直接代跑。建议你拿整理好的参数去网页端运行。', 'reason': execution_target.get('reason'), 'support_scope': execution_target.get('support_scope'), 'preflight': {'id_diagnosis': id_diagnosis, 'summary': preflight_summary}}, ensure_ascii=False, indent=2), file=sys.stderr)
             sys.exit(1)
         if not runtime_webapp.get('id'):
             print(json.dumps({'error': 'REMOTE_APP_RUN_NOT_SUPPORTED', 'message': raw_app, 'detail': '这个对象的参数和说明我已经拿到了，不过后台的执行通道还没完全接好。为了防止跑错，这轮我先不帮你提交运行啦，等路线通了咱们再来！', 'reason': 'missing_execution_webapp_id', 'preflight': {'id_diagnosis': id_diagnosis, 'summary': preflight_summary}}, ensure_ascii=False, indent=2), file=sys.stderr)

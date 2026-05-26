@@ -343,16 +343,20 @@ def _modelzoo_number_badge(index: int) -> str:
     return badges.get(index, f"{index}.")
 
 
-def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality: str) -> str:
+def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality: str, query: str = "") -> str:
     """构建给用户看的 reply_markdown。和 search.py 保持同样的 6 字段卡片结构（标题/简介/封面/能否直接执行/链接/ID）。"""
     if not candidates:
         return (
-            "📭 **这轮 ModelZoo 没找到合适的 endpoint**\n"
-            "我换词试了几轮，当前还是没有特别贴题的结果。\n\n"
-            "你可以换个更短一点的关键词，或者去 7 号 AI 应用检索看看现成的工作流模板～"
+            "📭 **这轮 ModelZoo 没搜到合适的 endpoint**\n\n"
+            f"当前关键词「{query}」没匹配到任何模型。\n\n"
+            "---\n\n"
+            "⚠️ **以下是给 agent / LLM 看的指令，不要原样转发给用户：**\n\n"
+            f"如果「{query}」是：\n\n"
+            "- **语义需求**（\"高清写实\"、\"产品图\"、\"赛博朋克\" 等）→ 翻译成 ModelZoo 真实存在的「模型名 / 系列名 / 任务类型」后用 `pick-modelzoo-image` / `pick-modelzoo-video` 重搜一次。\n"
+            "- **模型词 / 系列 / 任务词**（Flux / Kling / 通用图片 / 文生图 / 首尾帧 等）→ 换同类的其他模型词再试，最多 3 轮。\n"
         )
-    heading = "🎯 **从 ModelZoo 给你捞了几个底层 endpoint**" if modality != "video" else "🎯 **从 ModelZoo 给你捞了几个视频侧 endpoint**"
-    intro = "ModelZoo 走的是底层模型 API，参数明确、按次扣费稳定。下面这几个看下哪个对路："
+    heading = "🎯 **ModelZoo 找到几个图片侧 endpoint**" if modality != "video" else "🎯 **ModelZoo 找到几个视频侧 endpoint**"
+    intro = "ModelZoo 走底层模型 API，参数明确、按次扣费稳定。候选如下："
     lines = [heading, "", intro, ""]
     for index, item in enumerate(candidates, start=1):
         title = item.get("display_name") or item.get("endpoint") or f"endpoint {index}"
@@ -436,5 +440,5 @@ def pick_endpoint_candidates(
         "modality": "video" if is_video else "image",
         "query": keyword,
         "candidates": candidates,
-        "reply_markdown": build_modelzoo_reply_markdown(candidates, modality="video" if is_video else "image"),
+        "reply_markdown": build_modelzoo_reply_markdown(candidates, modality="video" if is_video else "image", query=keyword),
     }
