@@ -20,12 +20,14 @@
     "3": "seedream5-t2i",
     "4": "o2-t2i",
     "5": "b2-t2i",
-    "6": "remote-search-flow",
+    "6": "modelzoo-search-flow",
+    "7": "remote-search-flow",
     "v1": "v31pro-t2v",
     "v2": "happyhorse-t2v",
     "v3": "kling30-t2v",
     "v4": "wan27-t2v",
     "v5": "seedance2-t2v",
-    "v6": "remote-video-search-flow"
+    "v6": "modelzoo-video-search-flow",
+    "v7": "remote-video-search-flow"
   }
 }
