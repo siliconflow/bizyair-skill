@@ -42,14 +42,14 @@ SEARCH_FLOW_SLUGS = {
 
 
 def reject_search_flow_target(target: str, *, task_index: int, phase: str) -> None:
-    """批量任务里如果出现搜索路由 slug（用户写 scene: 6 / 7 / v6 / v7 会触发），直接返回友好错误。"""
+    """批量任务里如果出现搜索路由 slug（用户写 scene: 6 / 7 会触发），直接返回友好错误。"""
     if target not in SEARCH_FLOW_SLUGS:
         return
     print(json.dumps({
         'error': 'BATCH_SEARCH_FLOW_NOT_SUPPORTED',
         'message': (
-            f'批量任务里第 {task_index} 个解析出来的是搜索路由 `{target}`（菜单 6 / 7 / v6 / v7），'
-            '不是可执行模型。搜索入口属于交互式查找，无法直接 batch。'
+            f'批量任务里第 {task_index} 个解析出来的是搜索入口（菜单 6 / 7），不是可执行模型。'
+            '搜索入口属于交互式查找，无法直接 batch。'
             '请先单独跑搜索拿到具体的模型 slug 或 ModelZoo endpoint，再放进 batch。'
         ),
         'slug': target,
