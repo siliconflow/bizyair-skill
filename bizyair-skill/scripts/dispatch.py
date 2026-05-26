@@ -1,4 +1,4 @@
-"""dispatch.py — 10 个固定模型（图片 5 + 视频 5）的入口 + 批量入口。
+"""dispatch.py — 10 个固定模型（图片 5 + 视频 5）+ 4 类搜索路由（图片/视频 × ModelZoo/AI 应用）的入口 + 批量入口。
 
 主流程按顺序判断（main() 自上而下）：
   --image-menu / --video-menu        本地直接打印菜单文案
@@ -10,7 +10,8 @@
   --model X (默认)                   resolve → 固定模型走 ModelZoo 直接执行
 
 固定模型（ROUTE_TABLE 中的 10 个）全部走 ModelZoo 标准 API 执行，不再 shell 到 app.py。
-非固定模型（站内搜索结果等）仍走 app.py 的 webapp 路径。
+非固定模型（AI 应用搜索结果等）仍走 app.py 的 webapp 路径。
+搜索路由（modelzoo-search-flow / -video / remote-search-flow / -video）走 cli.py 的 pick-* 命令。
 
 【⚠️ args.scene 的处理顺序】
 args.scene 在 L155-156 被解析（scene -> model）。这一步必须在 batch path 之前
@@ -372,6 +373,24 @@ def main():
         query = args.prompt or args.search or args.task or '文生视频'
         dispatch_common.run_subprocess(base_cmd + ['--pick-video-candidates', query, '--remote', '--remote-source', 'community', '--reply-format', 'json'])
         return
+    if model == 'modelzoo-search-flow':
+        dispatch_common.ensure_api_key_ready(args.api_key)
+        query = args.prompt or args.search or args.task or '通用图片'
+        cli_script = dispatch_common.SCRIPT_DIR / 'cli.py'
+        cmd = [sys.executable, str(cli_script), 'pick-modelzoo-image', query, '--reply-format', 'json']
+        if args.api_key:
+            cmd += ['--api-key', args.api_key]
+        dispatch_common.run_subprocess(cmd)
+        return
+    if model == 'modelzoo-video-search-flow':
+        dispatch_common.ensure_api_key_ready(args.api_key)
+        query = args.prompt or args.search or args.task or '文生视频'
+        cli_script = dispatch_common.SCRIPT_DIR / 'cli.py'
+        cmd = [sys.executable, str(cli_script), 'pick-modelzoo-video', query, '--reply-format', 'json']
+        if args.api_key:
+            cmd += ['--api-key', args.api_key]
+        dispatch_common.run_subprocess(cmd)
+        return
     app_id = dispatch_common.resolve_model(args.task, model)
     parameter_state = card.determine_parameter_state(args, app_id)
     if parameter_state in ('missing_required', 'awaiting_confirmation'):
@@ -397,7 +416,7 @@ def main():
         dispatch_common.save_runtime_state(state)
         return
 
-    # 非固定模型：旧 webapp 路径（站内搜索结果等）
+    # 非固定模型：旧 webapp 路径（AI 应用搜索结果等）
     cmd = list(base_cmd) + ['--run', app_id]
     prompt_bundle = card.build_prompt_bundle_for_model(app_id, args)
     execution_prompt = prompt_bundle.get('execution_prompt', '') or (args.prompt or '')

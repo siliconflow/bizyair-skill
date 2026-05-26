@@ -1,19 +1,19 @@
-"""dispatch.py 的公共逻辑 + 10 个固定模型（图片 5 + 视频 5）的元数据。
+"""dispatch.py 的公共逻辑 + 10 个固定模型（图片 5 + 视频 5）+ 4 类搜索路由（图片/视频 × ModelZoo/AI 应用）的元数据。
 
 承载 dispatch.py 跑起来需要的几样东西：
   - APP_SCRIPT / DISPATCH_SCRIPT: 子进程调度时拼命令的路径常量
   - MODEL_MAP: 用户输入的别名 → 内部 slug
   - ROUTE_TABLE: slug → ModelZoo endpoint + modality（**加新菜单模型从这里改**）
-  - SCENE_NUMBER_MAP: 菜单数字 → slug（"5" → "gpt-image-2-text" / "v2" → "happyhorse-t2v"）
+  - SCENE_NUMBER_MAP: 菜单数字 → slug（"5" → "b2-t2i" / "v2" → "happyhorse-t2v" / "6" → "modelzoo-search-flow" / "7" → "remote-search-flow"）
   - COMPILER_RULES: slug → defaults。**只有 defaults，没有 fields**——字段集合 / 中文标签 / 可选值全部从远端 contract 动态拿
-  - IMAGE_SCENE_MENU / VIDEO_SCENE_MENU: 用户看到的菜单文案
+  - IMAGE_SCENE_MENU / VIDEO_SCENE_MENU: 用户看到的菜单文案（从 config/menus.json 加载）
   - 各种 runtime_state（续跑缓存）、batch policy、subprocess 调度工具
 
 【加一个新菜单模型怎么改】
-  1) ROUTE_TABLE 加一行 {'slug': {'endpoint': '<modelzoo-endpoint>', 'modality': 'image/video'}}
+  1) ROUTE_TABLE 加一行 {'slug': {'endpoint': '<modelzoo-endpoint>', 'modality': 'image/video'}}（注：表是从 config/routes.json 加载的，要加去那里的 image / video 段）
   2) MODEL_MAP 加几条别名 → slug
-  3) SCENE_NUMBER_MAP 占用一个空槽位
-  4) IMAGE_SCENE_MENU / VIDEO_SCENE_MENU 文案补一行
+  3) config/routes.json 的 scene_number_map 占用一个空槽位
+  4) config/menus.json 的对应菜单文案补一行
   5) display_model_name 的 names 表加一条
   6) （可选）COMPILER_RULES 加 defaults，让卡片有合理的默认值
   字段、可选值、中文标签、推荐文案——全都不用动，从远端 contract 自动拿。
@@ -42,8 +42,8 @@ MODEL_MAP = {'bpro-t2i': 'bpro-t2i', '通用图片b.pro': 'bpro-t2i', 'fkmax-t2i
 # 用户没明确指模型时，按 task 类型回落到的默认 slug。
 TASK_DEFAULTS = {'text-to-image': 'bpro-t2i', 'illustration-anime': 'bpro-t2i', 'commercial-visual': 'seedream5-t2i', 'text-layout-image': 'o2-t2i', 'text-to-video': 'wan27-t2v', 'cinematic-video': 'v31pro-t2v'}
 
-# slug → ModelZoo endpoint + 模态。固定模型直接调 ModelZoo API 执行，非固定模型走 app.py webapp 路径。**加新菜单模型必改这张表。**
-# 路由表和菜单从 config/ 加载（加新模型只改 config/routes.json + config/menus.json）
+# slug → ModelZoo endpoint + 模态。固定模型直接调 ModelZoo API 执行，非固定模型走 app.py webapp 路径。
+# 路由表和菜单从 config/ 加载（**加新菜单模型只改 config/routes.json + config/menus.json**）
 def _load_routes_config():
     config_dir = SCRIPT_DIR.parent / 'config'
     routes_file = config_dir / 'routes.json'
@@ -129,7 +129,9 @@ def recommend_image_option(prompt: str | None, images: list[str] | None) -> tupl
     q = normalized_text(prompt)
     image_count = len(images or [])
     if image_count >= 1 or looks_like_image_edit_prompt(q):
-        return ('6', '你这次更像图生图 / 图片编辑路线，默认这 5 个都是文生图，我更建议直接走 6 号站内检索。')
+        return ('7', '你这次更像图生图 / 图片编辑路线，5 个精选模型都是文生图，我更建议直接走 7 号 AI 应用检索，那边有现成的编辑工作流。')
+    if has_any(q, ['endpoint', '调用api', '调用 api', '按次扣费', '底层模型', 'modelzoo', 'model zoo', '模型api', '模型 api']):
+        return ('6', '你这是想直接调底层模型 API，那走 6 号 ModelZoo 搜索更对路——参数明确、按次扣费稳定。')
     if has_any(q, ['海报', '广告', 'kv', '主视觉', '封面']):
         return ('3', '你这类目标很像主视觉成稿，3 号 Seedream 5.0 往往会更会给你那股“能直接拿去用”的味道。')
     if has_any(q, ['中文', '汉字', '排版', '标题字', '字效', 'logo字']):
@@ -139,7 +141,7 @@ def recommend_image_option(prompt: str | None, images: list[str] | None) -> tupl
     if has_any(q, ['细节', '高级感', '电商', '商品图', '详情页', '审美']):
         return ('5', '你这类更看重细节、质感和审美，我会更愿意把 5 号通用图片B.2 往前推。')
     if has_any(q, ['快一点', '快速', '先来一版', '先出一张', '赶时间']):
-        return ('6', '你现在更像是先抢速度、先拿版本感受方向，那 站内检索 会更合适。')
+        return ('5', '你现在更像是先抢速度、先拿版本感受方向，那 5 号通用图片B.2 会更顺手——它本来就是“节奏更快”那一档。')
     return ('1', '你这类还没特别卡死风格，那就先从 1 号通用图片B.Pro 试，容错会更高。')
 
 def recommend_video_option(prompt: str | None, images: list[str] | None, audios: list[str] | None) -> tuple[str, str]:
@@ -147,7 +149,9 @@ def recommend_video_option(prompt: str | None, images: list[str] | None, audios:
     image_count = len(images or [])
     audio_count = len(audios or [])
     if image_count >= 1 or audio_count >= 1 or has_any(q, ['图生视频', '首尾帧', '首帧', '尾帧', '过渡', '转场', '对口型', '口播', '说话', '嘴型', '音频', '配音', '唱歌']):
-        return ('6', '你这次不是纯文生视频，默认这 5 个都不是最贴的，我更建议直接走 6 号站内检索。')
+        return ('7', '你这次不是纯文生视频，5 个精选模型都不太贴，我更建议直接走 7 号 AI 应用检索，那边的工作流模板对路得多。')
+    if has_any(q, ['endpoint', '调用api', '调用 api', '按次扣费', '底层模型', 'modelzoo', 'model zoo', '模型api', '模型 api']):
+        return ('6', '你这是想直接调底层视频模型 API，那走 6 号 ModelZoo 搜索更对路——参数明确、按次扣费稳定。')
     if has_any(q, ['电影感', '镜头', '光影', '质感', '大片']):
         return ('1', '你这类明显冲着电影感和镜头语言去的，那我会更想先推 1 号通用视频V.3.1.Pro。')
     if has_any(q, ['剧情', '叙事', '分镜', '讲故事', '连续场景']):
@@ -162,11 +166,11 @@ def recommend_video_option(prompt: str | None, images: list[str] | None, audios:
 
 def build_image_menu_message(prompt: str | None, images: list[str] | None) -> str:
     (option, reason) = recommend_image_option(prompt, images)
-    return f'{IMAGE_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-6 就行；你明确说模型名、编号，也可以直接按那个走。'
+    return f'{IMAGE_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-7 就行；你明确说模型名、编号，也可以直接按那个走。'
 
 def build_video_menu_message(prompt: str | None, images: list[str] | None, audios: list[str] | None) -> str:
     (option, reason) = recommend_video_option(prompt, images, audios)
-    return f'{VIDEO_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-6 就行；你明确说模型名、编号，也可以直接按那个走。'
+    return f'{VIDEO_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-7 就行；你明确说模型名、编号，也可以直接按那个走。'
 
 def is_video_model(model: str | None) -> bool:
     if model in ROUTE_TABLE:

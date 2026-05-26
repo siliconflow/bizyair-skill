@@ -113,7 +113,7 @@ def inherit_previous_run(args: argparse.Namespace, model: str | None) -> bool:
 def determine_parameter_state(args: argparse.Namespace, model: str | None) -> str:
     if not model:
         return 'user_supplied_enough'
-    if model in {'remote-search-flow', 'remote-video-search-flow'}:
+    if model in {'remote-search-flow', 'remote-video-search-flow', 'modelzoo-search-flow', 'modelzoo-video-search-flow'}:
         return 'user_supplied_enough'
     run_authorized = has_explicit_run_authorization(args)
     if asks_to_inherit_previous(args):

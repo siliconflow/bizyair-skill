@@ -34,6 +34,30 @@ from dispatch_common import (
     SYSTEM_MAX_BATCH_CONCURRENCY, SYSTEM_MAX_BATCH_TASKS,
 )
 
+# 搜索路由（菜单 6 / 7 / v6 / v7）是交互式 picker，不是可执行模型。batch 不允许跑这类 slug。
+SEARCH_FLOW_SLUGS = {
+    'remote-search-flow', 'remote-video-search-flow',
+    'modelzoo-search-flow', 'modelzoo-video-search-flow',
+}
+
+
+def reject_search_flow_target(target: str, *, task_index: int, phase: str) -> None:
+    """批量任务里如果出现搜索路由 slug（用户写 scene: 6 / 7 / v6 / v7 会触发），直接返回友好错误。"""
+    if target not in SEARCH_FLOW_SLUGS:
+        return
+    print(json.dumps({
+        'error': 'BATCH_SEARCH_FLOW_NOT_SUPPORTED',
+        'message': (
+            f'批量任务里第 {task_index} 个解析出来的是搜索路由 `{target}`（菜单 6 / 7 / v6 / v7），'
+            '不是可执行模型。搜索入口属于交互式查找，无法直接 batch。'
+            '请先单独跑搜索拿到具体的模型 slug 或 ModelZoo endpoint，再放进 batch。'
+        ),
+        'slug': target,
+        'task_index': task_index,
+        'phase': phase,
+    }, ensure_ascii=False, indent=2), file=sys.stderr)
+    sys.exit(2)
+
 def resolve_batch_policy() -> dict:
     config = dispatch_common.load_skill_config()
     batch_cfg = config.get('batch') if isinstance(config.get('batch'), dict) else {}
@@ -302,6 +326,7 @@ def handle_batch_prefill(base_args: argparse.Namespace) -> None:
         if task_args.scene:
             model = SCENE_NUMBER_MAP.get(task_args.scene, task_args.scene)
         target = dispatch_common.resolve_model(task_args.task, model)
+        reject_search_flow_target(target, task_index=index, phase='batch_prefill')
         card.apply_compiled_selection(task_args, target)
         if target in ROUTE_TABLE:
             # 固定模型：用 ModelZoo detail 渲染 prefill card
@@ -351,6 +376,7 @@ def handle_batch_run(base_args: argparse.Namespace) -> None:
         if task_args.scene:
             model = SCENE_NUMBER_MAP.get(task_args.scene, task_args.scene)
         target = dispatch_common.resolve_model(task_args.task, model)
+        reject_search_flow_target(target, task_index=index, phase='batch_run')
         card.apply_compiled_selection(task_args, target)
         output_path = str((batch_dir / f'task-{index:02d}-output').resolve())
         log_path = batch_dir / f'task-{index:02d}.log'
