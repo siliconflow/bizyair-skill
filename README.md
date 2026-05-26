@@ -226,7 +226,6 @@ export BIZYAIR_API_KEY="你的 BizyAir API Key"
 > - **分类**：FLF to Video
 > - **能否直接执行**：✅ 支持，参数确认后即可开跑
 > - **endpoint**：`kling-o3-pro-base/flf-to-video`
-> - **下一步**：`cli.py modelzoo-detail kling-o3-pro-base/flf-to-video` 看参数 / `cli.py modelzoo-price kling-o3-pro-base/flf-to-video` 看价格
 >
 > 2️⃣ **可灵O3.Pro-文生视频-渠道版**
 >
@@ -234,7 +233,6 @@ export BIZYAIR_API_KEY="你的 BizyAir API Key"
 > - **分类**：Text to Video
 > - **能否直接执行**：✅ 支持，参数确认后即可开跑
 > - **endpoint**：`kling-o3-pro-base/text-to-video`
-> - **下一步**：`cli.py modelzoo-detail kling-o3-pro-base/text-to-video` 看参数 / `cli.py modelzoo-price kling-o3-pro-base/text-to-video` 看价格
 >
 > 告诉我编号或 endpoint 名，我接着往下帮你出参数卡。
 

@@ -211,7 +211,6 @@ The assistant will respond like:
 > - **Category**: FLF to Video
 > - **Runnable directly**: ✅ Yes, after parameter confirmation
 > - **endpoint**: `kling-o3-pro-base/flf-to-video`
-> - **Next step**: `cli.py modelzoo-detail kling-o3-pro-base/flf-to-video` for params / `cli.py modelzoo-price kling-o3-pro-base/flf-to-video` for pricing
 >
 > 2️⃣ **Kling O3.Pro · text-to-video (channel edition)**
 >
@@ -219,7 +218,6 @@ The assistant will respond like:
 > - **Category**: Text to Video
 > - **Runnable directly**: ✅ Yes, after parameter confirmation
 > - **endpoint**: `kling-o3-pro-base/text-to-video`
-> - **Next step**: `cli.py modelzoo-detail kling-o3-pro-base/text-to-video` for params / `cli.py modelzoo-price kling-o3-pro-base/text-to-video` for pricing
 >
 > Tell me a number or endpoint name and I'll move on to the parameter card.
 
