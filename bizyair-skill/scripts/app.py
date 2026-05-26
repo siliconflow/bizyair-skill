@@ -30,7 +30,26 @@ def cmd_check(api_key_arg: str | None):
     if not key:
         print(json.dumps({'status': 'no_key', 'message': 'No BizyAir API key configured', 'supported_inputs': {'cli': '--api-key YOUR_BIZYAIR_KEY', 'env': 'BIZYAIR_API_KEY', 'config': f'{common.config_display_path()} -> credentials.api_key'}, 'recommended': f'Save the key to {common.config_display_path()} at credentials.api_key'}, ensure_ascii=False))
         return
-    print(json.dumps({'status': 'ok', 'key_prefix': key[:4] + '****', 'source': api.get_key_source(api_key_arg)}, ensure_ascii=False))
+    # 真打一次 BizyAir 钱包 API 验证 key 有效性。
+    # 不靠占位符字符串匹配（否则换个文案就漏过），靠服务器自己回应。
+    resp = api.request_json('GET', f'{API_BASE}/y/v1/wallet', key)
+    http_status = (resp or {}).get('status')
+    if api.result_is_ok(resp):
+        # 成功 envelope: {ok: True, status: 200, data: {code: 20000, data: {wallet}}}
+        inner = resp.get('data') if isinstance(resp, dict) else {}
+        biz_code = inner.get('code') if isinstance(inner, dict) else None
+        if biz_code != 20000:
+            print(json.dumps({'status': 'invalid_key', 'key_prefix': key[:4] + '****', 'source': api.get_key_source(api_key_arg), 'message': 'API key 无效或已失效，请检查后重新配置', 'http_status': http_status, 'server_code': biz_code}, ensure_ascii=False))
+            return
+        data = api.extract_result_data(resp)
+        total_amount = data.get('total_balance_amount')
+        if isinstance(total_amount, (int, float)) and total_amount <= 0:
+            print(json.dumps({'status': 'no_balance', 'key_prefix': key[:4] + '****', 'source': api.get_key_source(api_key_arg), 'message': 'API key 有效但余额为 0，请先充值再使用'}, ensure_ascii=False))
+            return
+        print(json.dumps({'status': 'ok', 'key_prefix': key[:4] + '****', 'source': api.get_key_source(api_key_arg)}, ensure_ascii=False))
+        return
+    # 鉴权失败 / 占位符 / 假 key：safe_request_json 会返回 {ok: False, status: 401, error: {...}}
+    print(json.dumps({'status': 'invalid_key', 'key_prefix': key[:4] + '****', 'source': api.get_key_source(api_key_arg), 'message': 'API key 无效或已失效，请检查后重新配置', 'http_status': http_status}, ensure_ascii=False))
 
 def cmd_wallet(api_key_arg: str | None):
     api_key = api.require_api_key(api_key_arg)
