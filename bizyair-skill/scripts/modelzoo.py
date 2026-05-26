@@ -353,10 +353,11 @@ def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality:
         )
     heading = "🎯 **从 ModelZoo 给你捞了几个底层 endpoint**" if modality != "video" else "🎯 **从 ModelZoo 给你捞了几个视频侧 endpoint**"
     intro = "ModelZoo 走的是底层模型 API，参数明确、按次扣费稳定。下面这几个看下哪个对路："
-    lines = [heading, intro, ""]
+    lines = [heading, "", intro, ""]
     for index, item in enumerate(candidates, start=1):
         title = item.get("display_name") or item.get("endpoint") or f"endpoint {index}"
         lines.append(f"{_modelzoo_number_badge(index)} **{title}**")
+        lines.append("")
         description = item.get("description")
         if description:
             text = str(description).strip().replace("\n", " ")
