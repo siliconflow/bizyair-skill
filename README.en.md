@@ -40,9 +40,9 @@
 
 | Core capability | Typical scenarios | Interaction style |
 | :--- | :--- | :--- |
-| **Image Generation** | Text-to-image, image-to-image, editing, outpainting | **5 common entry points** + in-site search |
-| **Video Generation** | Text-to-video, image-to-video, lip sync, etc. | **5 common entry points** + in-site search |
-| **AI Apps & ModelZoo** | Inspect and run all kinds of BizyAir apps | Direct links, object inspection, in-site search |
+| **Image Generation** | Text-to-image, image-to-image, editing, outpainting | **5 curated models** + ModelZoo search + AI app search |
+| **Video Generation** | Text-to-video, image-to-video, lip sync, etc. | **5 curated models** + ModelZoo search + AI app search |
+| **AI Apps & ModelZoo** | Inspect and run BizyAir apps and underlying ModelZoo endpoints | Direct links, object inspection, dual-track search |
 | **Smart Parameter Engine** | Intent completion, prompt refinement | "Prefill confirmation card" instead of blank forms |
 
 ---
@@ -136,15 +136,21 @@ For example, you can say:
 The assistant will respond like:
 > "Pick a model 👇
 >
+> 【⭐ Curated · 5 common video models】
 > 1. 🎬 V.3.1.Pro: cinematic mood, lens feel, stronger visual impact.
 > 2. 🐎 HappyHorse: fast output, comfortable price-performance.
 > 3. 🐉 Kling 3.0 Pro: stronger for action, movement, and impact, native 4K.
 > 4. 🌊 Wanxiang 2.7: strong Chinese understanding, audio sync, multi-shot editing.
 > 5. 💃 Seedance 2.0: character motion, dance, and role consistency.
-> 6. 🔎 In-site Search: if the default 5 don't fit, or it's not a pure text-to-video task.
+>
+> 【🧪 ModelZoo Search · ✨ NEW】
+> 6. Direct calls to underlying model APIs — explicit params, predictable per-call billing.
+>
+> 【🔎 AI App Search】
+> 7. Find ready-made workflow templates for complex multi-step pipelines.
 >
 > I'd suggest starting with option 4 — your request hasn't locked down a specific style yet, so Wanxiang 2.7 tends to be more stable.
-> Just reply 1–6; if you already know the model name or number, we can use that directly."
+> Just reply 1–7; if you already know the model name or number, we can use that directly."
 
 ### 2. Link diagnosis
 If you send an unfamiliar App link, the assistant will fetch the underlying inspection result (`info`) and explain in natural language:
@@ -183,11 +189,44 @@ The assistant will respond like:
 >
 > Once confirmed, reply "run" to generate immediately, or just tell me if you want to change the ratio or resolution."
 
-### 4. In-site recommendation search
-If you don't know which tool to use, just describe your goal. **The assistant will search inside BizyAir and find the most relevant app candidates.**
+### 4. Dual-track search
+Beyond the 5 curated models, the assistant can take two different search routes depending on what you need:
+
+- **Slot 6 — ModelZoo Search**: direct calls to underlying model APIs, with explicit parameters and predictable per-call billing. Good when you already know the rough route ("I want a Kling video", "find me a specific endpoint").
+- **Slot 7 — AI App Search**: BizyAir's workflow templates that bundle complex multi-step pipelines into one click. Good when you want a pre-made solution ("a workflow that swaps backgrounds", "an e-commerce key-visual template").
+
+#### Example 1: find a ModelZoo endpoint
 
 For example, you can say:
-> "I want to generate an architectural render. Can you check what's suitable on BizyAir?"
+> "I want to call an underlying video model API directly. Search me a few kling endpoints."
+
+The assistant will respond like:
+> 🎯 **Picked a few video-side ModelZoo endpoints for you**
+>
+> ModelZoo gives you direct API access — explicit params, predictable per-call billing. Here's what looks closest:
+>
+> 1️⃣ **Kling O3.Pro · FLF to Video (channel edition)**
+>
+> - **Summary**: O3-architecture first/last-frame video model, supports first/last-frame constraints with smooth motion control.
+> - **Category**: FLF to Video
+> - **Runnable directly**: ✅ Yes, after parameter confirmation
+> - **endpoint**: `kling-o3-pro-base/flf-to-video`
+> - **Next step**: `cli.py modelzoo-detail kling-o3-pro-base/flf-to-video` for params / `cli.py modelzoo-price kling-o3-pro-base/flf-to-video` for pricing
+>
+> 2️⃣ **Kling O3.Pro · text-to-video (channel edition)**
+>
+> - **Summary**: O3-architecture text-to-video model, sharp subjects, smooth motion, natural lighting.
+> - **Category**: Text to Video
+> - **Runnable directly**: ✅ Yes, after parameter confirmation
+> - **endpoint**: `kling-o3-pro-base/text-to-video`
+> - **Next step**: `cli.py modelzoo-detail kling-o3-pro-base/text-to-video` for params / `cli.py modelzoo-price kling-o3-pro-base/text-to-video` for pricing
+>
+> Tell me a number or endpoint name and I'll move on to the parameter card.
+
+#### Example 2: find an AI app / workflow
+
+For example, you can say:
+> "I want to generate an architectural render. Can you check what BizyAir workflows would suit it?"
 
 The assistant will respond like:
 > 🎯 **Found some BizyAir objects that fit your needs better**
@@ -195,15 +234,15 @@ The assistant will respond like:
 > I filtered out the weak matches. Here are the ones worth looking at:
 >
 > 1️⃣ **FLUX建筑效果图高清修复**
+>
 > - **Best for**: Flux.1 D based route, suitable as a candidate for this round.
-> - **Cover**: ![FLUX建筑效果图高清修复](https://storage.bizyair.cn/img/20260201/4m3HzGC9cD4nVDClMVdQkH0Yzs6TCwfr.webp?image_size=889*500&image_process=format,webp&x-oss-process=image/resize,w_600,m_lfit/format,webp)
 > - **Runnable directly**: ✅ Yes
 > - **Link**: https://bizyair.cn/community/app/44479
 > - **ID**: `44479`
 >
 > 2️⃣ **建筑效果图放大**
+>
 > - **Best for**: Flux.2 Klein based route, suitable as a candidate for this round.
-> - **Cover**: ![建筑效果图放大](https://storage.bizyair.cn/img/20260131/HmSojWB5WdPqpYBtnjpjo3g4mvAuXVFH.webp?image_size=800*448&image_process=format,webp&x-oss-process=image/resize,w_600,m_lfit/format,webp)
 > - **Runnable directly**: ✅ Yes
 > - **Link**: https://bizyair.cn/community/app/44396
 > - **ID**: `44396`
@@ -221,14 +260,18 @@ The assistant will respond like:
 python3 scripts/cli.py image-menu
 python3 scripts/cli.py video-menu
 
-# Fixed search routes (in-site search candidates)
+# Fixed search routes (AI app candidates)
 python3 scripts/cli.py pick-image "<keyword>" --remote
 python3 scripts/cli.py pick-video "<keyword>" --remote
+
+# ModelZoo endpoint candidates (menu slot 6 / v6)
+python3 scripts/cli.py pick-modelzoo-image "<keyword>"
+python3 scripts/cli.py pick-modelzoo-video "<keyword>"
 
 # Generate a prefilled confirmation card (fixed routes)
 python3 scripts/dispatch.py --model <ROUTE_ID> --prefill-card --prompt "<request>"
 
-# General in-site search
+# General BizyAir platform search (apps / workflows / creations / MCP)
 python3 scripts/cli.py search "<keyword>" --remote
 
 # Browse in-site app listings (filterable by type/sort)
