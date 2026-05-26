@@ -29,18 +29,35 @@ license: MIT
 - 使用低层兼容推理接口（/chat/completions、/trd_api/*）
 - 使用 console 或管理员接口
 
+## 能力 + 命令速查
+
+LLM 接到用户请求时先看这张表，按「用户在问什么」找到对应命令；如果需要展开规则细节，再按表里指向的 reference 打开对应文档。
+
+| 用户在问什么 | 直接跑 | 规则文档 |
+|---|---|---|
+| 跑精选图片/视频模型（菜单 1-5） | `cli.py image-menu` / `video-menu` 选编号 | 03 |
+| 搜 ModelZoo 底层 endpoint（按次扣费稳定，参数明确） | `cli.py pick-modelzoo-image "<词>"` / `pick-modelzoo-video "<词>"` | 04 |
+| 搜 BizyAir 上的 AI 应用 / Workflow（现成模板，多步流程） | `cli.py pick-image "<词>" --remote` / `pick-video "<词>" --remote` | 01 |
+| 看某个 BizyAir 对象（链接 / ID）是干嘛的 | `cli.py info <link-or-id>` | 01 |
+| 看 ModelZoo 某个 endpoint 详情 / 价格 | `cli.py modelzoo-detail <endpoint>` / `modelzoo-price <endpoint>` | 04 |
+| 跑一个 AI 应用 | `cli.py prefill <link-or-id>` → 用户确认 → `cli.py run <app_id>` | 03 |
+| 跑一个 ModelZoo 任务 | `cli.py modelzoo-run <endpoint> --param k=v` | 04 |
+| 查余额 / API Key | `cli.py wallet` / `cli.py check` | 02 |
+| 多任务并行 / 批量同模型 | `cli.py batch-prefill --model <slug>` → `cli.py batch-run` | 06 |
+| 公共约定（鉴权头、URL 过期、错误码、枚举值） | （不直接执行，查规则用） | 05 |
+
 ## 模块路由
 
-按问题类型只看对应 reference，避免一次加载全部：
+按问题类型只看对应 reference，避免一次加载全部。这张表负责「需要展开完整规则时翻哪份文档」，速查表负责「找具体命令」，两者一上一下配合用。
 
-| 问题 | 看哪份 |
+| 用户在问什么 | 看哪份 |
 |---|---|
-| 搜模型/应用/工作流/作品/MCP | `references/01-query-search.md` |
-| 查余额/API Key/调用记录 | `references/02-account-assets.md` |
-| 跑 AI 应用 / 参数卡 / 执行状态 | `references/03-ai-app-tasks.md` |
-| 跑 ModelZoo 模型服务 | `references/04-modelzoo-tasks.md` |
-| 忘了参数/枚举/错误码/分页 | `references/05-common-reference.md` |
-| 批量/并行任务 | `references/06-batch-rules.md` |
+| 搜 BizyAir 上的 AI 应用、Workflow、作品、MCP（平台对象检索） | `references/01-query-search.md` |
+| 搜 ModelZoo 底层 endpoint、跑 ModelZoo 任务、查 ModelZoo 状态/价格/调用记录 | `references/04-modelzoo-tasks.md` |
+| 跑 AI 应用任务、生成参数确认卡、查执行状态 | `references/03-ai-app-tasks.md` |
+| 多任务并行、批量同模型 | `references/06-batch-rules.md` |
+| 查余额、API Key、自己的调用记录 | `references/02-account-assets.md` |
+| 鉴权头、URL 过期、错误码、枚举值这些公共约定 | `references/05-common-reference.md` |
 
 ## 总规则
 
