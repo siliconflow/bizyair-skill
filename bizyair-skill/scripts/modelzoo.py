@@ -280,3 +280,160 @@ def get_mycall_detail(api_key: str, call_type: str, request_id: str) -> dict[str
         f"{X_BASE}/modelzoo/mycalls/{call_type}/{request_id}",
         api_key,
     )
+
+
+# ---- ModelZoo endpoint 候选搜索（菜单 6 号 / v6 入口）----
+
+# Heuristic 视频信号词。命中即判定为视频侧 endpoint。
+# 关键词来自 ModelZoo 现有视频类 endpoint 的 display_name / category / endpoint slug。
+_MODELZOO_VIDEO_SIGNALS = (
+    "video",
+    "视频",
+    "t2v",
+    "i2v",
+    "image-to-video",
+    "text-to-video",
+    "lipsync",
+    "lip-sync",
+    "口型",
+    "kling",
+    "wan",
+    "seedance",
+    "veo",
+    "vidu",
+    "ltx",
+    "hunyuan",
+    "happyhorse",
+)
+
+
+def _modelzoo_item_text_blob(item: dict[str, Any]) -> str:
+    """把一个 modelzoo list 项的几个文本字段合并成一坨小写 blob，用于关键词命中。"""
+    parts = [
+        str(item.get("display_name") or ""),
+        str(item.get("category") or ""),
+        str(item.get("endpoint") or ""),
+        str(item.get("description") or ""),
+        str(item.get("introduction") or ""),
+    ]
+    return " ".join(parts).lower()
+
+
+def is_video_modelzoo_endpoint(item: dict[str, Any]) -> bool:
+    """根据 display_name / category / endpoint 文本判断是否视频侧 endpoint。"""
+    blob = _modelzoo_item_text_blob(item)
+    return any(signal in blob for signal in _MODELZOO_VIDEO_SIGNALS)
+
+
+def summarize_modelzoo_candidate(item: dict[str, Any]) -> dict[str, Any]:
+    """挑出展示给用户的几个字段，避免把整个 raw item 透传出去。"""
+    endpoint = item.get("endpoint")
+    return {
+        "endpoint": endpoint,
+        "display_name": item.get("display_name"),
+        "category": item.get("category"),
+        "description": item.get("description") or item.get("introduction"),
+        "cover_image": item.get("cover_url") or item.get("icon") or item.get("cover"),
+        "tags": item.get("tags") or [],
+    }
+
+
+def _modelzoo_number_badge(index: int) -> str:
+    badges = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣"}
+    return badges.get(index, f"{index}.")
+
+
+def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality: str) -> str:
+    """构建给用户看的 reply_markdown。和 search.py 保持同样的 6 字段卡片结构（标题/简介/封面/能否直接执行/链接/ID）。"""
+    if not candidates:
+        return (
+            "📭 **这轮 ModelZoo 没找到合适的 endpoint**\n"
+            "我换词试了几轮，当前还是没有特别贴题的结果。\n\n"
+            "你可以换个更短一点的关键词，或者去 7 号 AI 应用检索看看现成的工作流模板～"
+        )
+    heading = "🎯 **从 ModelZoo 给你捞了几个底层 endpoint**" if modality != "video" else "🎯 **从 ModelZoo 给你捞了几个视频侧 endpoint**"
+    intro = "ModelZoo 走的是底层模型 API，参数明确、按次扣费稳定。下面这几个看下哪个对路："
+    lines = [heading, intro, ""]
+    for index, item in enumerate(candidates, start=1):
+        title = item.get("display_name") or item.get("endpoint") or f"endpoint {index}"
+        lines.append(f"{_modelzoo_number_badge(index)} **{title}**")
+        description = item.get("description")
+        if description:
+            text = str(description).strip().replace("\n", " ")
+            if len(text) > 120:
+                text = text[:120] + "..."
+            lines.append(f"- **简介**：{text}")
+        if item.get("category"):
+            lines.append(f"- **分类**：{item['category']}")
+        cover = item.get("cover_image")
+        if cover:
+            lines.append(f"- **封面**：![{title}]({cover})")
+        lines.append("- **能否直接执行**：✅ 支持，参数确认后即可开跑")
+        if item.get("endpoint"):
+            lines.append(f"- **endpoint**：`{item['endpoint']}`")
+            lines.append(
+                f"- **下一步**：`cli.py modelzoo-detail {item['endpoint']}` 看参数 / "
+                f"`cli.py modelzoo-price {item['endpoint']}` 看价格"
+            )
+        lines.append("")
+    lines.append("告诉我编号或 endpoint 名，我接着往下帮你出参数卡。")
+    return "\n".join(lines).strip()
+
+
+def pick_endpoint_candidates(
+    api_key: str,
+    query: str,
+    modality: str,
+    *,
+    limit: int = 10,
+    page_size: int = 30,
+    max_pages: int = 3,
+) -> dict[str, Any]:
+    """搜 ModelZoo endpoint 并按模态过滤，返回 reply_markdown + 结构化 candidates。
+
+    最简版：复用 list_endpoints 的 keyword 搜索，按服务端默认排序（sort=Auto）取前 N，
+    然后用 is_video_modelzoo_endpoint 做客户端模态分流。复杂打分（命中度 + 价格 +
+    used_count 加权）留给后续迭代。
+    """
+
+    keyword = (query or "").strip()
+    is_video = (modality or "").strip().lower() == "video"
+    seen_endpoints: set[str] = set()
+    matched: list[dict[str, Any]] = []
+
+    for current_page in range(1, max_pages + 1):
+        result = list_endpoints(
+            api_key,
+            keyword=keyword,
+            page=current_page,
+            page_size=page_size,
+            sort="Auto",
+        )
+        data = (result.get("data") or {}).get("data") or result.get("data") or {}
+        items = data.get("list") or []
+        if not items:
+            break
+        for item in items:
+            endpoint = str(item.get("endpoint") or "").strip()
+            if not endpoint or endpoint in seen_endpoints:
+                continue
+            seen_endpoints.add(endpoint)
+            item_is_video = is_video_modelzoo_endpoint(item)
+            if is_video and not item_is_video:
+                continue
+            if not is_video and item_is_video:
+                continue
+            matched.append(item)
+            if len(matched) >= limit:
+                break
+        if len(matched) >= limit:
+            break
+
+    candidates = [summarize_modelzoo_candidate(it) for it in matched[:limit]]
+    return {
+        "source": "modelzoo-pick",
+        "modality": "video" if is_video else "image",
+        "query": keyword,
+        "candidates": candidates,
+        "reply_markdown": build_modelzoo_reply_markdown(candidates, modality="video" if is_video else "image"),
+    }
