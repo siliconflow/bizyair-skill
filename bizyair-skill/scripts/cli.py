@@ -301,7 +301,8 @@ def _modelzoo_pick(rest: list[str], *, modality: str):
             i += 2
         elif rest[i] == "--limit" and i + 1 < len(rest):
             try:
-                limit = max(1, int(rest[i + 1]))
+                # 上限 30：picker 不再做模态过滤，全部召回，所以避免输出爆炸
+                limit = max(1, min(30, int(rest[i + 1])))
             except ValueError:
                 pass
             i += 2
