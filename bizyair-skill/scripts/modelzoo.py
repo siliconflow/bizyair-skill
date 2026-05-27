@@ -324,8 +324,7 @@ def summarize_modelzoo_candidate(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _modelzoo_number_badge(index: int) -> str:
-    badges = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣"}
-    return badges.get(index, f"{index}.")
+    return f"{index}."
 
 
 def _modality_label(hint: str) -> str:

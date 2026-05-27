@@ -36,8 +36,7 @@ def summarize_remote_candidate(item: dict[str, Any]) -> dict[str, Any]:
     return {'id': item.get('id'), 'name': item.get('name'), 'type': item.get('type'), 'base_model': first_version.get('base_model'), 'version_id': first_version.get('id'), 'sign': first_version.get('sign'), 'draft_id': first_version.get('draft_id'), 'used_count': used_count, 'available': first_version.get('available'), 'cover_urls': cover_urls, 'preview_image': preview_image, 'preview_video': preview_video, 'cover_image_url': preview_image, 'cover_video_url': preview_video, 'official_url': f"https://bizyair.cn/community/app/{item.get('id')}" if item.get('type') == 'Application' else None, 'stability': 'remote-only-analysis', 'layer': 'platform-result'}
 
 def number_badge(index: int) -> str:
-    badges = {1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣', 5: '5️⃣'}
-    return badges.get(index, f'{index}.')
+    return f'{index}.'
 
 def candidate_cover_markdown(item: dict[str, Any]) -> str | None:
     image_url = item.get('preview_image') or item.get('cover_image_url')
