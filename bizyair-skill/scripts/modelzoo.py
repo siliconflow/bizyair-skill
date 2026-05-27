@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import urllib.parse
 from typing import Any
 
 from common import API_BASE, POLL_INTERVAL, MAX_POLL_SECONDS
@@ -101,7 +102,8 @@ def list_endpoints(
 
     url = f"{X_BASE}/modelzoo/list?current={page}&page_size={page_size}"
     if keyword:
-        url += f"&keyword={keyword}"
+        # 必须 URL encode，否则中文 keyword 会被服务器拒（urllib.error 或 0 条结果）。
+        url += f"&keyword={urllib.parse.quote(keyword)}"
     if sort:
         url += f"&sort={sort}"
     body = {
