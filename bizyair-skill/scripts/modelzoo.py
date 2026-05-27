@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import sys
 import time
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from common import API_BASE, POLL_INTERVAL, MAX_POLL_SECONDS
@@ -101,7 +103,8 @@ def list_endpoints(
 
     url = f"{X_BASE}/modelzoo/list?current={page}&page_size={page_size}"
     if keyword:
-        url += f"&keyword={keyword}"
+        # 必须 URL encode，否则中文 keyword 会被服务器拒（urllib.error 或 0 条结果）。
+        url += f"&keyword={urllib.parse.quote(keyword)}"
     if sort:
         url += f"&sort={sort}"
     body = {
@@ -280,3 +283,236 @@ def get_mycall_detail(api_key: str, call_type: str, request_id: str) -> dict[str
         f"{X_BASE}/modelzoo/mycalls/{call_type}/{request_id}",
         api_key,
     )
+
+
+# ---- ModelZoo endpoint 候选搜索（菜单 6 号 / v6 入口）----
+
+# 模态推断：直接看 server 返回的 category 字段，权威 + 简单。
+# 旧版用关键词扫描 display_name + endpoint + description 一坨 blob，把品牌名（wan/hunyuan）
+# 当视频信号导致万相图片版被错杀。category 字段值是 "Text to Image" / "Text to Video" /
+# "FLF to Video" / "Image to Image" / "Vision" 等，包含 video/image 子串就足以分流。
+
+
+def infer_modality_hint(item: dict[str, Any]) -> tuple[str, str]:
+    """根据 ModelZoo 服务端 category 字段判断模态。返回 (hint, reason)。
+
+    hint: 'image' / 'video' / 'unknown'（Vision / LLM / TTS 等非图视类落 unknown）
+    reason: 给 LLM / debug 看的简短说明
+    """
+    category = item.get("category") or ""
+    cat_low = category.lower()
+    if "video" in cat_low:
+        return "video", f"category={category}"
+    if "image" in cat_low:
+        return "image", f"category={category}"
+    return "unknown", f"category={category or '(空)'}"
+
+
+def summarize_modelzoo_candidate(item: dict[str, Any]) -> dict[str, Any]:
+    """挑出展示给用户的几个字段，避免把整个 raw item 透传出去。
+
+    cover_image 优先级：
+      1. outputs_example.images[0] / videos[0]（detail API 拿的真示例图，需要 picker 提前注入到 raw item 的 _cover_image_url 字段）
+      2. icon_url（list 阶段就有，是模型 logo 不是真示例）
+      3. None
+    cover_image_source 字段告诉调用方这是真示例还是 logo。
+    """
+    endpoint = item.get("endpoint")
+    hint, reason = infer_modality_hint(item)
+
+    cover_url = item.get("_cover_image_url")
+    cover_source = item.get("_cover_image_source")
+    if not cover_url:
+        icon = item.get("icon_url")
+        if icon:
+            cover_url = icon
+            cover_source = "icon_url"
+        else:
+            cover_source = "none"
+
+    return {
+        "endpoint": endpoint,
+        "display_name": item.get("display_name"),
+        "category": item.get("category"),
+        "description": item.get("description") or item.get("introduction"),
+        "cover_image": cover_url,
+        "cover_image_source": cover_source,
+        "tags": item.get("tags") or [],
+        "modality_hint": hint,
+        "modality_reason": reason,
+    }
+
+
+def _modelzoo_number_badge(index: int) -> str:
+    return f"{index}."
+
+
+def _modality_label(hint: str) -> str:
+    """渲染 reply_markdown 时挂在标题后的标签。unknown 不打标签。"""
+    if hint == "image":
+        return " [图片]"
+    if hint == "video":
+        return " [视频]"
+    return ""
+
+
+def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality: str, query: str = "") -> str:
+    """构建给用户看的 reply_markdown。
+
+    现在 picker 不再按 modality 截断，候选可能图视混合，所以 heading 用中性表述；
+    每条候选标题后挂 [图片] / [视频] 标签，便于 LLM 按用户意图重排。
+    """
+    if not candidates:
+        return (
+            "📭 **这轮 ModelZoo 没搜到合适的 endpoint**\n\n"
+            f"当前关键词「{query}」没匹配到任何模型。\n\n"
+            "---\n\n"
+            "⚠️ **以下是给 agent / LLM 看的指令，不要原样转发给用户：**\n\n"
+            f"如果「{query}」是：\n\n"
+            "- **语义需求**（\"高清写实\"、\"产品图\"、\"赛博朋克\" 等）→ 翻译成 ModelZoo 真实存在的「模型名 / 系列名 / 任务类型」后用 `pick-modelzoo-image` / `pick-modelzoo-video` 重搜一次。\n"
+            "- **模型词 / 系列 / 任务词**（Flux / Kling / 通用图片 / 文生图 / 首尾帧 等）→ 换同类的其他模型词再试，最多 3 轮。\n"
+        )
+    target = (modality or "image").lower()
+    target_label = "视频" if target == "video" else "图片"
+    heading = f"🎯 **ModelZoo 找到的 endpoint（已按 {target_label} 意图排序）**"
+    intro = "ModelZoo 走底层模型 API，参数明确、按次扣费稳定。候选如下（标签是模态提示，跨模态的请按用户意图重排或忽略）："
+    lines = [heading, "", intro, ""]
+    for index, item in enumerate(candidates, start=1):
+        title = item.get("display_name") or item.get("endpoint") or f"endpoint {index}"
+        label = _modality_label(item.get("modality_hint", "unknown"))
+        lines.append(f"{_modelzoo_number_badge(index)} **{title}**{label}")
+        lines.append("")
+        description = item.get("description")
+        if description:
+            text = str(description).strip().replace("\n", " ")
+            if len(text) > 120:
+                text = text[:120] + "..."
+            lines.append(f"- **简介**：{text}")
+        if item.get("category"):
+            lines.append(f"- **分类**：{item['category']}")
+        cover = item.get("cover_image")
+        if cover:
+            # outputs_example 是真实示例图，icon_url 是 logo —— 两个都能告诉用户视觉风格
+            label_text = "示例" if item.get("cover_image_source") == "outputs_example" else "图标"
+            # 视频示例用裸 URL（SKILL.md 第 6 条），图片用 markdown 图
+            cover_lower = str(cover).lower()
+            is_video_cover = any(cover_lower.endswith(ext) for ext in (".mp4", ".mov", ".webm"))
+            if is_video_cover:
+                lines.append(f"- **{label_text}**（视频）：")
+                lines.append(cover)
+            else:
+                lines.append(f"- **{label_text}**：![{title}]({cover})")
+        lines.append("- **能否直接执行**：✅ 支持，参数确认后即可开跑")
+        if item.get("endpoint"):
+            lines.append(f"- **endpoint**：`{item['endpoint']}`")
+            lines.append(
+                f"- **下一步**：`cli.py modelzoo-detail {item['endpoint']}` 看参数 / "
+                f"`cli.py modelzoo-price {item['endpoint']}` 看价格"
+            )
+        lines.append("")
+    lines.append("告诉我编号或 endpoint 名，我接着往下帮你出参数卡。")
+    return "\n".join(lines).strip()
+
+
+def _fetch_outputs_example_url(api_key: str, endpoint: str) -> tuple[str | None, str]:
+    """对单个 endpoint 打一次 detail，从 outputs_example 拿第一张示例图/视频 URL。
+
+    返回 (url, source)。source 取值：
+      - 'outputs_example'：拿到了真示例图
+      - 'none'：没拿到（detail 失败 / outputs_example 空 / endpoint 是 LLM/TTS 类没图）
+    单条失败静默兜底，不抛异常，不影响其他候选。
+    """
+    if not endpoint:
+        return None, "none"
+    try:
+        result = get_detail(api_key, endpoint)
+    except Exception:
+        return None, "none"
+    data = (result.get("data") or {}).get("data") or result.get("data") or {}
+    outputs = data.get("outputs_example") or {}
+    if not isinstance(outputs, dict):
+        return None, "none"
+    images = outputs.get("images") or []
+    if images:
+        first = images[0] if isinstance(images, list) else None
+        if isinstance(first, str) and first.strip():
+            return first.strip(), "outputs_example"
+    videos = outputs.get("videos") or []
+    if videos:
+        first = videos[0] if isinstance(videos, list) else None
+        if isinstance(first, str) and first.strip():
+            return first.strip(), "outputs_example"
+    return None, "none"
+
+
+def pick_endpoint_candidates(
+    api_key: str,
+    query: str,
+    modality: str,
+    *,
+    limit: int = 10,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """搜 ModelZoo endpoint，全部召回不截断；只按 modality 排序。
+
+    设计变化（vs 旧版）：
+    - 不再按 modality 过滤候选，全部返回（旧版误杀「万相图片版」等真实 case）
+    - 每条候选挂 modality_hint / modality_reason，供 LLM 按用户意图重排呈现
+    - 只对最终进入 limit 的候选并行打 detail 拿 outputs_example 示例图（list API 不带）
+    - limit 默认 10，调用方可放大到 30（cli.py 上限 30）
+    """
+    keyword = (query or "").strip()
+    target = (modality or "image").lower()
+    result = list_endpoints(
+        api_key,
+        keyword=keyword,
+        page=1,
+        page_size=page_size,
+        sort="Auto",
+    )
+    data = (result.get("data") or {}).get("data") or result.get("data") or {}
+    items = data.get("list") or []
+
+    # 去重，保留原始 raw item（后续要给它注入 cover_image）
+    seen: set[str] = set()
+    raw_unique: list[dict[str, Any]] = []
+    for item in items:
+        endpoint = str(item.get("endpoint") or "").strip()
+        if not endpoint or endpoint in seen:
+            continue
+        seen.add(endpoint)
+        raw_unique.append(item)
+
+    # 按 modality 排序（用 infer_modality_hint，不需要先 summarize）
+    def sort_key(it: dict[str, Any]) -> int:
+        hint, _ = infer_modality_hint(it)
+        if hint == target:
+            return 0
+        if hint == "unknown":
+            return 1
+        return 2
+
+    raw_unique.sort(key=sort_key)
+    top_n = raw_unique[:limit]
+
+    # 并行打 detail 拿 outputs_example 示例图（只对最终 top N 打）
+    if top_n:
+        with ThreadPoolExecutor(max_workers=min(10, len(top_n))) as pool:
+            cover_results = list(pool.map(
+                lambda it: _fetch_outputs_example_url(api_key, str(it.get("endpoint") or "")),
+                top_n,
+            ))
+        for it, (url, source) in zip(top_n, cover_results):
+            if url:
+                it["_cover_image_url"] = url
+                it["_cover_image_source"] = source
+
+    candidates = [summarize_modelzoo_candidate(it) for it in top_n]
+
+    return {
+        "source": "modelzoo-pick",
+        "modality": "video" if target == "video" else "image",
+        "query": keyword,
+        "candidates": candidates,
+        "reply_markdown": build_modelzoo_reply_markdown(candidates, modality=target, query=keyword),
+    }

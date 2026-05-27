@@ -23,6 +23,8 @@
   python3 scripts/cli.py modelzoo-price <endpoint>
   python3 scripts/cli.py modelzoo-run <endpoint> --param key=value
   python3 scripts/cli.py modelzoo-status <request_id>
+  python3 scripts/cli.py pick-modelzoo-image "<关键词>"
+  python3 scripts/cli.py pick-modelzoo-video "<关键词>"
 """
 from __future__ import annotations
 
@@ -109,6 +111,10 @@ def main():
         _modelzoo_run(rest)
     elif cmd == "modelzoo-status":
         _modelzoo_status(rest)
+    elif cmd == "pick-modelzoo-image":
+        _modelzoo_pick(rest, modality="image")
+    elif cmd == "pick-modelzoo-video":
+        _modelzoo_pick(rest, modality="video")
 
     else:
         print(f"Unknown command: {cmd}")
@@ -270,6 +276,49 @@ def _modelzoo_status(rest: list[str]):
     result = modelzoo.query_task(key, request_id)
     data = (result.get("data") or {}).get("data") or result.get("data") or {}
     print(json.dumps(data, ensure_ascii=False, indent=2)[:2000])
+
+
+def _modelzoo_pick(rest: list[str], *, modality: str):
+    """ModelZoo endpoint 候选搜索（菜单 6 号 / v6）。
+
+    支持 --reply-format json|markdown，默认 json（与 pick-image / pick-video 一致）。
+    --limit 控制候选数量上限。
+    """
+    import modelzoo
+
+    key = _get_key(rest)
+    query = ""
+    if rest and not rest[0].startswith("--"):
+        query = rest[0]
+
+    # 简单 flag 解析（与现有 _modelzoo_run 风格一致，不引入 argparse）
+    reply_format = "json"
+    limit = 10
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--reply-format" and i + 1 < len(rest):
+            reply_format = rest[i + 1]
+            i += 2
+        elif rest[i] == "--limit" and i + 1 < len(rest):
+            try:
+                # 上限 30：picker 不再做模态过滤，全部召回，所以避免输出爆炸
+                limit = max(1, min(30, int(rest[i + 1])))
+            except ValueError:
+                pass
+            i += 2
+        else:
+            i += 1
+
+    if not query:
+        print("用法: cli.py pick-modelzoo-image|pick-modelzoo-video \"<关键词>\" [--limit N] [--reply-format json|markdown]")
+        sys.exit(1)
+
+    payload = modelzoo.pick_endpoint_candidates(key, query, modality, limit=limit)
+
+    if reply_format == "markdown":
+        print(payload.get("reply_markdown") or "")
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

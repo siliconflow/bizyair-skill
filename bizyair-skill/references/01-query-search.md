@@ -43,7 +43,7 @@ python3 scripts/cli.py info <链接或ID>
 
 ## 固定模型菜单
 
-图片 6 项（5 模型 + 1 搜索）/ 视频 6 项（5 模型 + 1 搜索）的固定菜单路由定义在 `config/routes.json`。
+图片 7 项（5 精选模型 + 1 ModelZoo 搜索 + 1 AI 应用检索）/ 视频 7 项同结构的固定菜单路由定义在 `config/routes.json`。
 
 触发：
 ```bash
@@ -55,7 +55,8 @@ python3 scripts/cli.py video-menu
 
 路由规则：
 - 1-5（图片）/ v1-v5（视频）：固定模型，给参数卡后执行
-- 6（图片）/ v6（视频）：站内检索入口
+- 6（图片）/ v6（视频）：ModelZoo 搜索入口（详见 04）
+- 7（图片）/ v7（视频）：AI 应用检索入口（本份文档下方「候选搜索」章节）
 
 ## 候选搜索
 
@@ -73,9 +74,11 @@ python3 scripts/cli.py pick-video "<短词1, 短词2, 短词3, 短词4, 短词5>
 
 ### 结果清洗
 
-- 跨模态砍掉（要图不给视频）
-- 低质量砍掉
-- 去重存优，默认保留 10 个候选
+- 不再做客户端模态过滤（旧版 `is_remote_image_candidate` / `is_remote_video_candidate` 已删）。AI 应用没有权威模态字段，启发式准确率低。
+- picker 一次性返回服务端 Most Used 排序的候选，**不截断**。
+- LLM 看 `name` / `base_model` 自己判断模态匹配度，不匹配的放到列表末尾或省略。
+- 默认 limit=10，最多 30。
+- 服务端 0 命中时自动用 `derive_subword_variants` 拆词重试一轮。
 
 ### 输出格式
 

@@ -4,7 +4,10 @@
 
 ## 使用前提
 
-modelzoo 是显式入口：用户给了 modelzoo 链接或明确说了模型名才走这条路。不做智能路由。
+ModelZoo 现在有两种入口：
+
+1. **菜单 6 号 / v6（ModelZoo 搜索）**：用户没指定具体 endpoint，但提到「调底层模型 / endpoint / 按次扣费」类需求时，走 `cli.py pick-modelzoo-image` / `pick-modelzoo-video` 帮用户找对路 endpoint。
+2. **显式入口**：用户给了 modelzoo 链接、明确说了 endpoint 名、或从菜单 6 号搜索结果里挑了具体 endpoint。
 
 允许：创建任务、查询状态、查询调用记录。
 禁止：扫描式批量调用、压测。
