@@ -90,7 +90,7 @@ def build_candidate_reply_markdown(candidates: list[dict[str, Any]], *, modality
     if not candidates:
         return f'📭 **没找到合适的 BizyAir 对象**\n当前关键词没匹配到结果。\n\n可以换个更具体的说法再试一次。'
     heading = '🎯 **找到几个 BizyAir 对象**'
-    intro = '已过滤掉明显不相关的，下面这几个更值得看：'
+    intro = '候选如下（按 BizyAir 上 Most Used 排序，模态由你根据用户需求自行判断）：'
     lines = [heading, '', intro, '']
     for (idx, item) in enumerate(candidates, start=1):
         title = item.get('name') or item.get('title') or f"BizyAir 对象 {item.get('id')}"
@@ -283,117 +283,88 @@ def build_semantic_plan(query: str, modality: str | None, *, has_image: bool=Fal
 def is_remote_candidate_object(item: dict[str, Any]) -> bool:
     return str(item.get('type') or '') in {'Application', 'Workflow'}
 
-def is_remote_image_candidate(item: dict[str, Any]) -> bool:
-    versions = item.get('versions') or []
-    first_version = versions[0] if versions else {}
-    base_model = common.normalized_text(first_version.get('base_model'))
-    name = common.normalized_text(item.get('name'))
-    blocked_name_terms = ['视频', 'video', 'lip', '口型', 'audio', '唱歌', '动作模仿']
-    blocked_base_models = ['seedance', 'kling', 'veo', 'ltx', 'vidu', 'wan']
-    if any((x in name for x in blocked_name_terms)):
-        return False
-    if any((x in base_model for x in blocked_base_models)):
-        return False
-    return True
+
+def _cmd_pick_remote_candidates(query: str, modality: str, *, api_key_arg: str | None=None, remote_source: str='community', page: int=1, page_size: int=24, sort: str | None=None, base_models: str | None=None, limit: int=10, reply_format: str='json') -> None:
+    """统一的 AI 应用候选搜索（图片 / 视频共用）。
+
+    设计变化（vs 旧版 cmd_pick_image_candidates / cmd_pick_video_candidates）：
+    - 删除客户端 modality 启发式过滤（is_remote_image_candidate / is_remote_video_candidate）。
+      AI 应用没有权威 modality 字段，启发式靠 4 个散乱关键词列表猜，准确率低且常误杀。
+      抽样验证：用户搜「kling」想要图片 → 服务端只有 kling 视频版 → 旧版直接 0 条卡死，
+      新版让 LLM 看到 base_model=Kling 自己判断要不要再帮用户搜 Flux/Seedream。
+    - 0 命中拆词兜底：服务端 keyword 不支持空格分词（如「Seedream 文生图」直接 0 条），
+      命中 0 条时自动用 derive_subword_variants 拆词分别试。
+    - modality 参数只影响 build_semantic_plan 的 search_queries 生成，不影响过滤。
+    """
+    api_key = api.require_api_key(api_key_arg)
+    semantic_plan = build_semantic_plan(query, modality)
+    resolved_sort = sort or ('Auto' if common.normalized_text(remote_source) == 'official' else 'Most Used')
+    search_terms = list(semantic_plan.get('search_queries', [])) or build_candidate_search_terms(query, modality)
+    collected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    attempts: list[dict[str, Any]] = []
+    internal_cap = max(limit * 4, 30)
+    max_pages_per_term = 2
+    terms_to_search = list(search_terms[:SEARCH_MAX_ROUNDS])
+
+    def run_term(term: str) -> int:
+        """跑一个 keyword，返回这一轮新增的候选数。"""
+        term_added = 0
+        for current_page in range(page, page + max_pages_per_term):
+            resp = api.fetch_remote_models(api_key, remote_source=remote_source, page=current_page, page_size=page_size, keyword=term, sort=resolved_sort, model_types=None, base_models=base_models)
+            resp_data = api.extract_result_data(resp) if isinstance(resp, dict) else {}
+            items = resp_data.get('list', [])
+            attempt = {'keyword': term, 'raw_total': resp_data.get('total'), 'page': resp_data.get('current'), 'raw_page_count': len(items), 'accepted_count': 0}
+            attempts.append(attempt)
+            if not items:
+                break
+            for item in items:
+                item_id = str(item.get('id'))
+                if not item_id or item_id in seen_ids:
+                    continue
+                if not is_remote_candidate_object(item):
+                    continue
+                seen_ids.add(item_id)
+                collected.append(item)
+                attempt['accepted_count'] += 1
+                term_added += 1
+            if len(collected) >= internal_cap:
+                break
+        return term_added
+
+    for (term_index, term) in enumerate(terms_to_search, start=1):
+        run_term(term)
+        if term_index < SEARCH_MIN_ROUNDS:
+            continue
+        if len(collected) >= internal_cap:
+            break
+
+    # 兜底：所有原始 search_terms 都 0 命中 → 拆词重试一轮
+    if not collected:
+        fallback_terms: list[str] = []
+        for original in terms_to_search:
+            for variant in derive_subword_variants(original):
+                if variant not in terms_to_search and variant not in fallback_terms:
+                    fallback_terms.append(variant)
+                if len(fallback_terms) >= SEARCH_MAX_ROUNDS:
+                    break
+            if len(fallback_terms) >= SEARCH_MAX_ROUNDS:
+                break
+        for term in fallback_terms:
+            run_term(term)
+            if collected:
+                break
+
+    collected = deduplicate_app_workflow_pairs(collected)
+    platform_results = format_remote_candidates(collected, semantic_plan, modality, limit=limit)
+    source_tag = 'remote-pick-video' if common.normalized_text(modality) == 'video' else 'remote-pick'
+    payload = {'source': source_tag, 'remote_source': remote_source, 'query': query, 'semantic_plan': semantic_plan, 'expanded_keywords': search_terms, 'attempts': attempts, 'limit': limit, 'platform_results': platform_results, 'candidates': platform_results, 'raw_total': sum((a.get('raw_total') or 0 for a in attempts)), 'reply_markdown': build_candidate_reply_markdown(platform_results, modality=modality)}
+    emit_candidate_reply(payload, reply_format=reply_format)
+
 
 def cmd_pick_image_candidates(query: str, *, api_key_arg: str | None=None, remote_source: str='community', page: int=1, page_size: int=24, sort: str | None=None, base_models: str | None=None, limit: int=10, reply_format: str='json'):
-    api_key = api.require_api_key(api_key_arg)
-    semantic_plan = build_semantic_plan(query, 'image')
-    resolved_sort = sort or ('Auto' if common.normalized_text(remote_source) == 'official' else 'Most Used')
-    search_terms = list(semantic_plan.get('search_queries', [])) or build_candidate_search_terms(query, 'image')
-    collected: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    attempts: list[dict[str, Any]] = []
-    internal_cap = max(limit * 12, 60)
-    max_pages_per_term = 3
-    terms_to_search = search_terms[:SEARCH_MAX_ROUNDS]
-    for (term_index, term) in enumerate(terms_to_search, start=1):
-        term_total_accepted = 0
-        for current_page in range(page, page + max_pages_per_term):
-            resp = api.fetch_remote_models(api_key, remote_source=remote_source, page=current_page, page_size=page_size, keyword=term, sort=resolved_sort, model_types=None, base_models=base_models)
-            resp_data = api.extract_result_data(resp) if isinstance(resp, dict) else {}
-            items = resp_data.get('list', [])
-            attempt = {'keyword': term, 'raw_total': resp_data.get('total'), 'page': resp_data.get('current'), 'raw_page_count': len(items), 'accepted_count': 0}
-            attempts.append(attempt)
-            if not items:
-                break
-            for item in items:
-                item_id = str(item.get('id'))
-                if not item_id or item_id in seen_ids:
-                    continue
-                if not is_remote_candidate_object(item):
-                    continue
-                seen_ids.add(item_id)
-                if is_remote_image_candidate(item):
-                    collected.append(item)
-                    attempt['accepted_count'] += 1
-                    term_total_accepted += 1
-            if len(collected) >= internal_cap and term_index >= SEARCH_MIN_ROUNDS:
-                break
-        if term_index < SEARCH_MIN_ROUNDS:
-            continue
-        if len(collected) >= internal_cap:
-            break
-    collected = deduplicate_app_workflow_pairs(collected)
-    platform_results = format_remote_candidates(collected, semantic_plan, 'image', limit=limit)
-    payload = {'source': 'remote-pick', 'remote_source': remote_source, 'query': query, 'semantic_plan': semantic_plan, 'expanded_keywords': search_terms, 'attempts': attempts, 'limit': limit, 'platform_results': platform_results, 'candidates': platform_results, 'raw_total': sum((a.get('raw_total') or 0 for a in attempts)), 'reply_markdown': build_candidate_reply_markdown(platform_results, modality='image')}
-    emit_candidate_reply(payload, reply_format=reply_format)
+    _cmd_pick_remote_candidates(query, 'image', api_key_arg=api_key_arg, remote_source=remote_source, page=page, page_size=page_size, sort=sort, base_models=base_models, limit=limit, reply_format=reply_format)
 
-def is_remote_video_candidate(item: dict[str, Any]) -> bool:
-    versions = item.get('versions') or []
-    first_version = versions[0] if versions else {}
-    base_model = common.normalized_text(first_version.get('base_model'))
-    name = common.normalized_text(item.get('name'))
-    description = common.normalized_text(first_version.get('description'))
-    tags_joined = ' '.join((str(x or '') for x in first_version.get('tags') or []))
-    joined = '\n'.join([name, base_model, description, common.normalized_text(tags_joined)])
-    positive_name_terms = ['视频', 'video', '口型', 'lip', '音频驱动', '唱歌视频', '首尾帧', '角色一致', '图生视频', '动态视频']
-    positive_base_models = ['seedance', 'kling', 'veo', 'ltx', 'vidu', 'wan', 'hunyuan']
-    blocked_audio_only_terms = ['tts', '文本转语音', '语音克隆', '音色克隆', '配音', 'voice clone']
-    has_video_signal = any((x in joined for x in positive_name_terms)) or any((x in base_model for x in positive_base_models))
-    if any((x in joined for x in blocked_audio_only_terms)) and (not any((x in joined for x in ['视频', 'video', '口型', 'lip', '图生视频', '首尾帧']))):
-        return False
-    return has_video_signal
 
 def cmd_pick_video_candidates(query: str, *, api_key_arg: str | None=None, remote_source: str='community', page: int=1, page_size: int=24, sort: str | None=None, base_models: str | None=None, limit: int=10, reply_format: str='json'):
-    api_key = api.require_api_key(api_key_arg)
-    semantic_plan = build_semantic_plan(query, 'video')
-    resolved_sort = sort or ('Auto' if common.normalized_text(remote_source) == 'official' else 'Most Used')
-    search_terms = list(semantic_plan.get('search_queries', [])) or build_candidate_search_terms(query, 'video')
-    collected: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    attempts: list[dict[str, Any]] = []
-    internal_cap = max(limit * 12, 60)
-    max_pages_per_term = 3
-    terms_to_search = search_terms[:SEARCH_MAX_ROUNDS]
-    for (term_index, term) in enumerate(terms_to_search, start=1):
-        term_total_accepted = 0
-        for current_page in range(page, page + max_pages_per_term):
-            resp = api.fetch_remote_models(api_key, remote_source=remote_source, page=current_page, page_size=page_size, keyword=term, sort=resolved_sort, model_types=None, base_models=base_models)
-            resp_data = api.extract_result_data(resp) if isinstance(resp, dict) else {}
-            items = resp_data.get('list', [])
-            attempt = {'keyword': term, 'raw_total': resp_data.get('total'), 'page': resp_data.get('current'), 'raw_page_count': len(items), 'accepted_count': 0}
-            attempts.append(attempt)
-            if not items:
-                break
-            for item in items:
-                item_id = str(item.get('id'))
-                if not item_id or item_id in seen_ids:
-                    continue
-                if not is_remote_candidate_object(item):
-                    continue
-                seen_ids.add(item_id)
-                if is_remote_video_candidate(item):
-                    collected.append(item)
-                    attempt['accepted_count'] += 1
-                    term_total_accepted += 1
-            if len(collected) >= internal_cap and term_index >= SEARCH_MIN_ROUNDS:
-                break
-        if term_index < SEARCH_MIN_ROUNDS:
-            continue
-        if len(collected) >= internal_cap:
-            break
-    collected = deduplicate_app_workflow_pairs(collected)
-    platform_results = format_remote_candidates(collected, semantic_plan, 'video', limit=limit)
-    payload = {'source': 'remote-pick-video', 'remote_source': remote_source, 'query': query, 'semantic_plan': semantic_plan, 'expanded_keywords': search_terms, 'attempts': attempts, 'limit': limit, 'platform_results': platform_results, 'candidates': platform_results, 'raw_total': sum((a.get('raw_total') or 0 for a in attempts)), 'reply_markdown': build_candidate_reply_markdown(platform_results, modality='video')}
-    emit_candidate_reply(payload, reply_format=reply_format)
+    _cmd_pick_remote_candidates(query, 'video', api_key_arg=api_key_arg, remote_source=remote_source, page=page, page_size=page_size, sort=sort, base_models=base_models, limit=limit, reply_format=reply_format)

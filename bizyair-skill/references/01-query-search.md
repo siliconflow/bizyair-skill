@@ -74,9 +74,11 @@ python3 scripts/cli.py pick-video "<短词1, 短词2, 短词3, 短词4, 短词5>
 
 ### 结果清洗
 
-- 跨模态砍掉（要图不给视频）
-- 低质量砍掉
-- 去重存优，默认保留 10 个候选
+- 不再做客户端模态过滤（旧版 `is_remote_image_candidate` / `is_remote_video_candidate` 已删）。AI 应用没有权威模态字段，启发式准确率低。
+- picker 一次性返回服务端 Most Used 排序的候选，**不截断**。
+- LLM 看 `name` / `base_model` 自己判断模态匹配度，不匹配的放到列表末尾或省略。
+- 默认 limit=10，最多 30。
+- 服务端 0 命中时自动用 `derive_subword_variants` 拆词重试一轮。
 
 ### 输出格式
 
