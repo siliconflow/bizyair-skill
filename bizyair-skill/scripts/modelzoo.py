@@ -14,6 +14,7 @@ import json
 import sys
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from common import API_BASE, POLL_INTERVAL, MAX_POLL_SECONDS
@@ -308,15 +309,34 @@ def infer_modality_hint(item: dict[str, Any]) -> tuple[str, str]:
 
 
 def summarize_modelzoo_candidate(item: dict[str, Any]) -> dict[str, Any]:
-    """挑出展示给用户的几个字段，避免把整个 raw item 透传出去。"""
+    """挑出展示给用户的几个字段，避免把整个 raw item 透传出去。
+
+    cover_image 优先级：
+      1. outputs_example.images[0] / videos[0]（detail API 拿的真示例图，需要 picker 提前注入到 raw item 的 _cover_image_url 字段）
+      2. icon_url（list 阶段就有，是模型 logo 不是真示例）
+      3. None
+    cover_image_source 字段告诉调用方这是真示例还是 logo。
+    """
     endpoint = item.get("endpoint")
     hint, reason = infer_modality_hint(item)
+
+    cover_url = item.get("_cover_image_url")
+    cover_source = item.get("_cover_image_source")
+    if not cover_url:
+        icon = item.get("icon_url")
+        if icon:
+            cover_url = icon
+            cover_source = "icon_url"
+        else:
+            cover_source = "none"
+
     return {
         "endpoint": endpoint,
         "display_name": item.get("display_name"),
         "category": item.get("category"),
         "description": item.get("description") or item.get("introduction"),
-        "cover_image": item.get("cover_url") or item.get("icon") or item.get("cover"),
+        "cover_image": cover_url,
+        "cover_image_source": cover_source,
         "tags": item.get("tags") or [],
         "modality_hint": hint,
         "modality_reason": reason,
@@ -372,7 +392,16 @@ def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality:
             lines.append(f"- **分类**：{item['category']}")
         cover = item.get("cover_image")
         if cover:
-            lines.append(f"- **封面**：![{title}]({cover})")
+            # outputs_example 是真实示例图，icon_url 是 logo —— 两个都能告诉用户视觉风格
+            label_text = "示例" if item.get("cover_image_source") == "outputs_example" else "图标"
+            # 视频示例用裸 URL（SKILL.md 第 6 条），图片用 markdown 图
+            cover_lower = str(cover).lower()
+            is_video_cover = any(cover_lower.endswith(ext) for ext in (".mp4", ".mov", ".webm"))
+            if is_video_cover:
+                lines.append(f"- **{label_text}**（视频）：")
+                lines.append(cover)
+            else:
+                lines.append(f"- **{label_text}**：![{title}]({cover})")
         lines.append("- **能否直接执行**：✅ 支持，参数确认后即可开跑")
         if item.get("endpoint"):
             lines.append(f"- **endpoint**：`{item['endpoint']}`")
@@ -383,6 +412,37 @@ def build_modelzoo_reply_markdown(candidates: list[dict[str, Any]], *, modality:
         lines.append("")
     lines.append("告诉我编号或 endpoint 名，我接着往下帮你出参数卡。")
     return "\n".join(lines).strip()
+
+
+def _fetch_outputs_example_url(api_key: str, endpoint: str) -> tuple[str | None, str]:
+    """对单个 endpoint 打一次 detail，从 outputs_example 拿第一张示例图/视频 URL。
+
+    返回 (url, source)。source 取值：
+      - 'outputs_example'：拿到了真示例图
+      - 'none'：没拿到（detail 失败 / outputs_example 空 / endpoint 是 LLM/TTS 类没图）
+    单条失败静默兜底，不抛异常，不影响其他候选。
+    """
+    if not endpoint:
+        return None, "none"
+    try:
+        result = get_detail(api_key, endpoint)
+    except Exception:
+        return None, "none"
+    data = (result.get("data") or {}).get("data") or result.get("data") or {}
+    outputs = data.get("outputs_example") or {}
+    if not isinstance(outputs, dict):
+        return None, "none"
+    images = outputs.get("images") or []
+    if images:
+        first = images[0] if isinstance(images, list) else None
+        if isinstance(first, str) and first.strip():
+            return first.strip(), "outputs_example"
+    videos = outputs.get("videos") or []
+    if videos:
+        first = videos[0] if isinstance(videos, list) else None
+        if isinstance(first, str) and first.strip():
+            return first.strip(), "outputs_example"
+    return None, "none"
 
 
 def pick_endpoint_candidates(
@@ -398,7 +458,7 @@ def pick_endpoint_candidates(
     设计变化（vs 旧版）：
     - 不再按 modality 过滤候选，全部返回（旧版误杀「万相图片版」等真实 case）
     - 每条候选挂 modality_hint / modality_reason，供 LLM 按用户意图重排呈现
-    - 单页召回（page_size=50 已经覆盖 server 上 keyword 命中的绝大多数）
+    - 只对最终进入 limit 的候选并行打 detail 拿 outputs_example 示例图（list API 不带）
     - limit 默认 10，调用方可放大到 30（cli.py 上限 30）
     """
     keyword = (query or "").strip()
@@ -413,27 +473,41 @@ def pick_endpoint_candidates(
     data = (result.get("data") or {}).get("data") or result.get("data") or {}
     items = data.get("list") or []
 
-    # 去重 + 摘要
+    # 去重，保留原始 raw item（后续要给它注入 cover_image）
     seen: set[str] = set()
-    summarized: list[dict[str, Any]] = []
+    raw_unique: list[dict[str, Any]] = []
     for item in items:
         endpoint = str(item.get("endpoint") or "").strip()
         if not endpoint or endpoint in seen:
             continue
         seen.add(endpoint)
-        summarized.append(summarize_modelzoo_candidate(item))
+        raw_unique.append(item)
 
-    # 按 modality 排序：hint == target 的排前面，hint == unknown 次之，反方向最后
-    def sort_key(c: dict[str, Any]) -> int:
-        hint = c.get("modality_hint", "unknown")
+    # 按 modality 排序（用 infer_modality_hint，不需要先 summarize）
+    def sort_key(it: dict[str, Any]) -> int:
+        hint, _ = infer_modality_hint(it)
         if hint == target:
             return 0
         if hint == "unknown":
             return 1
         return 2
 
-    summarized.sort(key=sort_key)
-    candidates = summarized[:limit]
+    raw_unique.sort(key=sort_key)
+    top_n = raw_unique[:limit]
+
+    # 并行打 detail 拿 outputs_example 示例图（只对最终 top N 打）
+    if top_n:
+        with ThreadPoolExecutor(max_workers=min(10, len(top_n))) as pool:
+            cover_results = list(pool.map(
+                lambda it: _fetch_outputs_example_url(api_key, str(it.get("endpoint") or "")),
+                top_n,
+            ))
+        for it, (url, source) in zip(top_n, cover_results):
+            if url:
+                it["_cover_image_url"] = url
+                it["_cover_image_source"] = source
+
+    candidates = [summarize_modelzoo_candidate(it) for it in top_n]
 
     return {
         "source": "modelzoo-pick",
