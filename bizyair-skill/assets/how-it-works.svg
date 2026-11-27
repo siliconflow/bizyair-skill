@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="How BizyAir works: you ask, the agent picks, you confirm, the result lands.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090D1A"/>
+      <stop offset="1" stop-color="#0C1B2C"/>
+    </linearGradient>
+    <linearGradient id="accentA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFB86B"/>
+      <stop offset="1" stop-color="#FF6FA5"/>
+    </linearGradient>
+    <linearGradient id="accentB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="accentC" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#34D399"/>
+    </linearGradient>
+    <linearGradient id="accentD" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A3E635"/>
+      <stop offset="1" stop-color="#FACC15"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" rx="24" fill="url(#bg)"/>
+  <text x="64" y="52" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="25" font-weight="700">From a sentence to a finished file</text>
+  <text x="64" y="78" fill="#8EA0C2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14">Four steps. You only need to say yes once.</text>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(64 112)">
+      <rect width="244" height="160" rx="18" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="244" height="4" rx="2" fill="url(#accentA)"/>
+      <text x="20" y="34" fill="#FFB86B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6">STEP 01</text>
+      <circle cx="210" cy="30" r="17" fill="#FFFFFF" fill-opacity="0.06"/>
+      <path d="M201 30 H219 M213 23 L220 30 L213 37" fill="none" stroke="#FFB86B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="20" y="78" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="650">You ask</text>
+      <text x="20" y="108" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">In plain language.</text>
+      <text x="20" y="128" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">No settings to learn.</text>
+    </g>
+
+    <g transform="translate(340 112)">
+      <rect width="244" height="160" rx="18" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="244" height="4" rx="2" fill="url(#accentB)"/>
+      <text x="20" y="34" fill="#8FA6FF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6">STEP 02</text>
+      <circle cx="210" cy="30" r="17" fill="#FFFFFF" fill-opacity="0.06"/>
+      <path d="M210 20 L214 28 L222 32 L214 36 L210 44 L206 36 L198 32 L206 28 Z" fill="#8FA6FF"/>
+      <text x="20" y="78" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="650">Agent picks</text>
+      <text x="20" y="108" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">The right model, app,</text>
+      <text x="20" y="128" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">or workflow.</text>
+    </g>
+
+    <g transform="translate(616 112)">
+      <rect width="244" height="160" rx="18" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="244" height="4" rx="2" fill="url(#accentC)"/>
+      <text x="20" y="34" fill="#5EEAD4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6">STEP 03</text>
+      <circle cx="210" cy="30" r="17" fill="#FFFFFF" fill-opacity="0.06"/>
+      <path d="M201 30 L207 36 L220 23" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="20" y="78" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="650">You confirm</text>
+      <text x="20" y="108" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">See what will run,</text>
+      <text x="20" y="128" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">and what it costs.</text>
+    </g>
+
+    <g transform="translate(892 112)">
+      <rect width="244" height="160" rx="18" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="244" height="4" rx="2" fill="url(#accentD)"/>
+      <text x="20" y="34" fill="#D9F99D" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6">STEP 04</text>
+      <circle cx="210" cy="30" r="17" fill="#FFFFFF" fill-opacity="0.06"/>
+      <path d="M210 20 V37 M204 31 L210 38 L216 31 M202 44 H218" fill="none" stroke="#D9F99D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="20" y="78" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="650">Result lands</text>
+      <text x="20" y="108" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">Saved to your device,</text>
+      <text x="20" y="128" fill="#AAB8D2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">ready to share.</text>
+    </g>
+  </g>
+
+  <g stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M312 192 H330 M324 186 L330 192 L324 198"/>
+    <path d="M588 192 H606 M600 186 L606 192 L600 198"/>
+    <path d="M864 192 H882 M876 186 L882 192 L876 198"/>
+  </g>
+
+  <text x="1136" y="300" text-anchor="end" fill="#FFFFFF" fill-opacity="0.32" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" letter-spacing="1.2">ONE YES = ONE RUN</text>
+</svg>

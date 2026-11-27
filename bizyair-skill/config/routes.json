@@ -1,18 +1,48 @@
 {
-  "_comment": "固定模型路由表。后端统一走 ModelZoo（endpoint 字段）。加新模型只改这里 + menus.json",
+  "_comment": "Fixed model routing table for the international site (bizyair.ai). All backends go through ModelZoo (endpoint field). Add new models here and in menus.json; slug must match scene_number_map.",
   "image": {
-    "bpro-t2i": {"endpoint": "bza-image-b-pro-base/text-to-image", "name": "通用图片B.Pro"},
-    "fkmax-t2i": {"endpoint": "flux-kontext-max-base/text-to-image", "name": "通用图片F.K.Max"},
-    "seedream5-t2i": {"endpoint": "seedream-5-0-official/text-to-image", "name": "Seedream 5.0"},
-    "o2-t2i": {"endpoint": "bza-image-o2-base/text-to-image", "name": "通用图片O.2"},
-    "b2-t2i": {"endpoint": "bza-image-b2-base/text-to-image", "name": "通用图片B.2"}
+    "bpro-t2i": {
+      "endpoint": "qwen-image-2-1-official/text-to-image",
+      "name": "Qwen Image 2.1"
+    },
+    "fkmax-t2i": {
+      "endpoint": "flux-3-official/text-to-image",
+      "name": "FLUX 3"
+    },
+    "seedream5-t2i": {
+      "endpoint": "seedream-5-0-flash-official/text-to-image",
+      "name": "Seedream 5.0 Flash"
+    },
+    "o2-t2i": {
+      "endpoint": "nano-banana-2-1-official/text-to-image",
+      "name": "Nano Banana 2.1"
+    },
+    "b2-t2i": {
+      "endpoint": "gpt-image-2-5-sunburst-official/text-to-image",
+      "name": "GPT Image 2.5 Sunburst"
+    }
   },
   "video": {
-    "v31pro-t2v": {"endpoint": "bza-video-v3-1-pro-base/text-to-video", "name": "通用视频V.3.1.Pro"},
-    "happyhorse-t2v": {"endpoint": "happyhorse-1-0-official/text-to-video", "name": "HappyHorse"},
-    "kling30-t2v": {"endpoint": "kling-3-0-pro-base/text-to-video", "name": "可灵3.0.Pro"},
-    "wan27-t2v": {"endpoint": "wan-2-7-official/text-to-video", "name": "万相2.7"},
-    "seedance2-t2v": {"endpoint": "seedance-2-0-official/text-to-video", "name": "Seedance 2.0"}
+    "v31pro-t2v": {
+      "endpoint": "flux-3-official/text-to-video",
+      "name": "FLUX 3 Video"
+    },
+    "happyhorse-t2v": {
+      "endpoint": "happy-horse-1-1-official/text-to-video",
+      "name": "Happy Horse 1.1"
+    },
+    "kling30-t2v": {
+      "endpoint": "kling-3-0-pro-channel/text-to-video",
+      "name": "Kling 3.0 Pro"
+    },
+    "wan27-t2v": {
+      "endpoint": "wan-2-7-official/text-to-video",
+      "name": "Wan 2.7"
+    },
+    "seedance2-t2v": {
+      "endpoint": "seedance-2-0-official/text-to-video",
+      "name": "Seedance 2.0"
+    }
   },
   "scene_number_map": {
     "1": "bpro-t2i",

@@ -1,35 +1,71 @@
-"""路径与运行时目录解析（无业务逻辑）。
+"""Path and runtime directory resolution (no business logic).
 
-负责回答四个问题：
-  1) skill 根目录在哪？        -> WORKSPACE_ROOT
-  2) config.json 读哪个？      -> resolve_config_path_for_read()
-  3) 任务输出落到哪？          -> resolve_output_root()
-  4) 续跑 / 批量状态文件在哪？ -> resolve_runtime_state_file() / resolve_batch_runs_dir()
+Answers four questions:
+  1) Where is the skill root?              -> SKILL_ROOT
+  2) Which config.json is read?            -> resolve_config_path_for_read()
+  3) Where do task outputs land?           -> resolve_output_root()
+  4) Where are resume / batch state files? -> resolve_runtime_state_file() / resolve_batch_runs_dir()
 
-优先级一律是「环境变量 > skill 自带默认」。环境变量见 HOME_ENV / STATE_DIR_ENV / OUTPUT_DIR_ENV。
-本文件不依赖任何其它脚本模块，是整个 skill 的最底层。
+The skill install directory holds only code / docs / config templates; by default no
+runtime state or output is written there.
+
+Priority:
+  - Runtime state: BIZYAIR_STATE_DIR > BIZYAIR_HOME > user state directory
+  - Output: BIZYAIR_OUTPUT_DIR > BIZYAIR_HOME/outputs > current workspace/bizyair-outputs
+  - If the current workspace is inside the skill directory, output falls back to outputs
+    under the runtime state directory, so the skill stays clean.
+
+This file depends on no other script module and is the lowest layer of the whole skill.
 """
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 
 APP_NAME = "bizyair"
 SCRIPT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = SCRIPT_DIR.parent
+SKILL_ROOT = SCRIPT_DIR.parent
+# Kept for old code/docs; semantically this is the skill root, not the user workspace.
+WORKSPACE_ROOT = SKILL_ROOT
 
 HOME_ENV = "BIZYAIR_HOME"
 STATE_DIR_ENV = "BIZYAIR_STATE_DIR"
 OUTPUT_DIR_ENV = "BIZYAIR_OUTPUT_DIR"
-
-WORKSPACE_RUNTIME_ROOT = WORKSPACE_ROOT / ".tmp" / APP_NAME
-WORKSPACE_OUTPUT_ROOT = WORKSPACE_RUNTIME_ROOT / "outputs"
+DEFAULT_OUTPUT_DIRNAME = "bizyair-outputs"
 
 
 def _expand_path(value: str) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(str(value)))).resolve()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _default_state_root() -> Path:
+    """User-level state directory; not the skill directory, and not tied to the current workspace."""
+    xdg_state = os.environ.get("XDG_STATE_HOME", "").strip()
+    if xdg_state:
+        return (_expand_path(xdg_state) / APP_NAME).resolve()
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Application Support" / APP_NAME).resolve()
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA", "").strip() or os.environ.get("APPDATA", "").strip()
+        if base:
+            return (_expand_path(base) / APP_NAME).resolve()
+    return (Path.home() / ".local" / "state" / APP_NAME).resolve()
+
+
+def _temp_state_root() -> Path:
+    suffix = f"-{os.getuid()}" if hasattr(os, "getuid") else ""
+    return (Path(tempfile.gettempdir()) / f"{APP_NAME}{suffix}").resolve()
 
 
 def display_path(path: str | Path) -> str:
@@ -43,7 +79,7 @@ def display_path(path: str | Path) -> str:
 
 
 def preferred_config_path() -> Path:
-    return (WORKSPACE_ROOT / "config.json").resolve()
+    return (SKILL_ROOT / "config.json").resolve()
 
 
 def resolve_config_path_for_read() -> Path:
@@ -63,7 +99,10 @@ def resolve_runtime_root() -> Path:
     if home_override:
         return _expand_path(home_override)
 
-    return WORKSPACE_RUNTIME_ROOT.resolve()
+    try:
+        return _default_state_root()
+    except Exception:
+        return _temp_state_root()
 
 
 def resolve_runtime_state_file() -> Path:
@@ -83,7 +122,40 @@ def resolve_output_root() -> Path:
     if home_override:
         return (_expand_path(home_override) / "outputs").resolve()
 
-    return WORKSPACE_OUTPUT_ROOT.resolve()
+    try:
+        invocation_cwd = Path.cwd().resolve()
+    except OSError:
+        invocation_cwd = SKILL_ROOT
+    if _is_relative_to(invocation_cwd, SKILL_ROOT):
+        # When commands are run from inside the skill directory, do not write results back into the install directory.
+        return (resolve_runtime_root() / "outputs").resolve()
+    return (invocation_cwd / DEFAULT_OUTPUT_DIRNAME).resolve()
+
+
+def resolve_batch_outputs_dir() -> Path:
+    """Batch task output root. Status / logs are not here; they live in resolve_batch_runs_dir()."""
+    return (resolve_output_root() / "batch_runs").resolve()
+
+
+def protected_output_roots() -> list[Path]:
+    """Directory roots where explicit task output is forbidden.
+
+    - Skill install directory: only code / docs / config templates; it must stay clean.
+    - Runtime batch directory: `batch-status.json` / heartbeat / lock files live here,
+      so task output written here would corrupt state.
+    """
+    roots = [SKILL_ROOT]
+    try:
+        roots.append(resolve_batch_runs_dir())
+    except Exception:
+        pass
+    return [root.resolve() for root in roots]
+
+
+def is_protected_output_path(path: str | Path) -> bool:
+    """Whether an explicit output lands inside a protected directory (including the directory itself)."""
+    resolved = _expand_path(str(path))
+    return any(_is_relative_to(resolved, root) for root in protected_output_roots())
 
 
 def load_config_json() -> dict:

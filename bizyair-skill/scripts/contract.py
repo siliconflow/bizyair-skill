@@ -1,23 +1,28 @@
-"""contract.py — BizyAir 远端对象的输入字段契约 / 节点判定。
+"""contract.py — input-field contract / node classification for BizyAir remote objects.
 
-存在的原因：BizyAir 上不同 app/workflow 的字段名极度不一致（prompt / text /
-CLIPTextEncode.text / 27:text / BizyAir_Seedream4.prompt 等），需要一层规则
-把字段类型分清楚，用于 info 输出和预填卡的展示标注。
+Why this exists: field names vary wildly across BizyAir apps/workflows (prompt / text /
+CLIPTextEncode.text / 27:text / BizyAir_Seedream4.prompt, etc.), so a rule layer is
+needed to sort field types for the info output and for the display annotations on the
+confirmation card.
 
-注意：prompt 识别相关函数（is_remote_prompt_input_node / get_supported_remote_prompt_binding_keys 等）
-现在仅用于 info 输出和预填卡的展示标注，不参与实际执行路径的字段映射。
-执行时的 prompt 写入由 api.build_remote_run_payload 中的 --prompt / --param 逻辑处理。
+Note: the prompt-detection helpers (is_remote_prompt_input_node /
+get_supported_remote_prompt_binding_keys, etc.) are now used only for the info output and
+for confirmation-card display annotations; they are not part of the field mapping on the
+actual execution path.
+At run time the prompt is written by the --prompt / --param logic in
+api.build_remote_run_payload.
 
-主要 API：
-  - resolve_remote_input_contract(execution_target, webapp_detail, workflow): 主入口，
-    把多个数据源的 input_nodes 合并成一份 resolved_contract dict
-  - is_negative_prompt_key: 判定是否为负向提示词字段
-  - is_text_input_field: 判定 field_type 是不是文本输入类型
-  - classify_remote_media_slot: 判定字段是否为媒体上传槽
-  - remote_contract_supports(contract, logical_name): 卡片渲染时检查"该字段在不在 contract 里"
+Main API:
+  - resolve_remote_input_contract(execution_target, webapp_detail, workflow): main entry,
+    merges input_nodes from several data sources into one resolved_contract dict
+  - is_negative_prompt_key: whether a field is a negative prompt
+  - is_text_input_field: whether field_type is a text input type
+  - classify_remote_media_slot: whether a field is a media upload slot
+  - remote_contract_supports(contract, logical_name): checks during card rendering
+    whether "the field is present in the contract"
 """
 from __future__ import annotations
-import argparse, json, re
+import json, re
 from typing import Any
 
 import api
@@ -35,8 +40,9 @@ def is_negative_prompt_key(field_name: str | None, field_label: str | None=None)
     lowered = raw.lower()
     if 'negative' in lowered and 'prompt' in lowered:
         return True
-    # 中文负向提示词识别
-    chinese_negatives = ('反向提示词', '负向提示词', '负面提示词', '反向', '负向')
+    # Chinese negative-prompt detection
+    # internal input alias; never displayed
+    chinese_negatives = ('\u53cd\u5411\u63d0\u793a\u8bcd', '\u8d1f\u5411\u63d0\u793a\u8bcd', '\u8d1f\u9762\u63d0\u793a\u8bcd', '\u53cd\u5411', '\u8d1f\u5411')
     return any(marker in raw for marker in chinese_negatives)
 
 def normalize_prompt_label(value: Any) -> str:
@@ -131,14 +137,15 @@ REMOTE_LOGICAL_FIELD_ALIASES = {
 }
 
 REMOTE_LOGICAL_FIELD_TEXT_MARKERS = {
-    'seed': {'随机'},
-    'steps': {'步数', '采样步数'},
-    'duration': {'时长'},
-    'aspect_ratio': {'比例', '画幅'},
-    'resolution': {'分辨率', '清晰度', '规格'},
-    'width': {'宽度'},
-    'height': {'高度'},
-    'model_name': {'模型档位', '档位'},
+    # internal input alias; never displayed
+    'seed': {'\u968f\u673a'},
+    'steps': {'\u6b65\u6570', '\u91c7\u6837\u6b65\u6570'},
+    'duration': {'\u65f6\u957f'},
+    'aspect_ratio': {'\u6bd4\u4f8b', '\u753b\u5e45'},
+    'resolution': {'\u5206\u8fa8\u7387', '\u6e05\u6670\u5ea6', '\u89c4\u683c'},
+    'width': {'\u5bbd\u5ea6'},
+    'height': {'\u9ad8\u5ea6'},
+    'model_name': {'\u6a21\u578b\u6863\u4f4d', '\u6863\u4f4d'},
 }
 
 def is_remote_logical_field(logical_name: str, *values: Any) -> bool:
@@ -171,6 +178,15 @@ def is_remote_prompt_input_node(node: dict[str, Any]) -> bool:
     if is_negative_prompt_key(field_name, field_label):
         return False
     if is_explicit_prompt_label(field_label):
+        return True
+    # Composite labels also count: a label such as "image prompt(single character)" glues
+    # the purpose word and the prompt word together, so it is not equal to any entry in
+    # EXPLICIT_PROMPT_LABELS as a whole, but its root is a prompt.
+    # Applies only to text fields (already filtered above), and negative prompts and
+    # annotation slots such as title/caption are already excluded.
+    normalized_label = normalize_prompt_label(field_label)
+    # internal input alias; never displayed (the Chinese token below matches prompt labels)
+    if normalized_label and any((token in normalized_label for token in ('prompt', '\u63d0\u793a\u8bcd'))) and (not is_negative_prompt_key(f'{field_name} {variable_name}', field_label)):
         return True
     if is_known_prompt_binding_key(field_name) or is_known_prompt_binding_key(variable_name):
         return True
@@ -587,7 +603,8 @@ def should_strip_prompt_default(value: Any) -> bool:
     text = common.normalized_text(value)
     if not text:
         return False
-    suspicious_markers = ['example', 'default', 'preset', 'sample', 'template', '示例', '默认', '预设', '样例', '模板']
+    # internal input alias; never displayed
+    suspicious_markers = ['example', 'default', 'preset', 'sample', 'template', '\u793a\u4f8b', '\u9ed8\u8ba4', '\u9884\u8bbe', '\u6837\u4f8b', '\u6a21\u677f']
     obvious_prompt_markers = ['masterpiece', 'best quality', 'ultra detailed', 'cinematic', 'poster', 'girl', 'boy', '1girl', '1boy']
     return any((x in text for x in suspicious_markers)) or any((x in text for x in obvious_prompt_markers))
 
@@ -620,7 +637,7 @@ def is_structurally_prompt_like_remote_text_field(field: dict[str, Any]) -> bool
     return is_known_prompt_node_type(node_type)
 
 
-# ---- 从 remote.py 移入的字段识别函数 ----
+# ---- Field-detection helpers moved in from remote.py ----
 
 def _split_machine_words(*parts: str) -> list[str]:
     raw = ' '.join((str(part or '') for part in parts))
@@ -629,7 +646,8 @@ def _split_machine_words(*parts: str) -> list[str]:
     return [token for token in tokens if token]
 
 def _contains_cjk(text: str) -> bool:
-    return bool(re.search(r'[一-鿿]', text or ''))
+    # internal input alias; never displayed (Han code-point range used for matching only)
+    return bool(re.search(r'[\u4e00-\u9fff]', text or ''))
 
 
 
@@ -641,13 +659,23 @@ def classify_remote_media_slot(node: dict[str, Any]) -> str | None:
     field_type = str(node.get('field_type') or '').lower()
     field_value = node.get('field_value')
     load_like_node = any((token in node_type for token in {'load', 'input'}))
-    # Toggle / 数值 / 枚举类字段不可能是上传媒体槽，先一刀切排除。
-    # 否则像 "generate_audio"、"image_count"、"video_speed" 这种 label 里含 audio/image/video
-    # 关键词的 boolean / int / 枚举开关，会被误判成需要上传文件的槽。
+    # Toggle / numeric / enum fields can never be upload slots, so exclude them outright.
+    # Otherwise boolean / int / enum switches whose labels carry audio/image/video
+    # keywords ("generate_audio", "image_count", "video_speed") are wrongly classified as
+    # slots that need an uploaded file.
     non_media_field_types = {'boolean', 'bool', 'toggle', 'switch', 'checkbox', 'combo', 'select', 'enum', 'choice', 'option', 'int', 'integer', 'float', 'number', 'slider', 'dropdown'}
     if field_type in non_media_field_types:
         return None
     if isinstance(field_value, bool):
+        return None
+    # Text fields can never be upload slots: for a prompt field such as
+    # "image prompt(single character)", having "image" in the label only describes the
+    # purpose, it does not ask the user to upload an image. Matching label substrings alone
+    # read the only prompt input of such text-to-image apps as an image slot, which made
+    # prefill show "1 to provide" and made run blocked by REMOTE_APP_RUN_REQUIRES_USER_MEDIA.
+    # Exception: the field name is explicitly image/images, or the node itself is a load/input
+    # upload node.
+    if field_type in TEXT_INPUT_FIELD_TYPES and field_name not in {'image', 'images'} and (not load_like_node):
         return None
     if field_name in {'image', 'images'} or 'image' in field_label or 'loadimage' in node_type or ('image' in variable_name and field_type == 'hidden') or ('image' in node_type and load_like_node and (field_type == 'hidden')):
         return 'image'
@@ -666,62 +694,64 @@ def humanize_remote_prefill_label(node: dict[str, Any]) -> str:
     joined = ' '.join([field_label.lower(), field_name.lower(), variable_name.lower()])
     tokens = _split_machine_words(field_label, field_name, variable_name)
     if 'negative' in tokens and 'prompt' in tokens:
-        return '反向提示词（不想出现什么）'
-    # 中文负向提示词识别
+        return 'Negative prompt (what should not appear)'
+    # Chinese negative-prompt detection
+    # internal input alias; never displayed
     raw_text = ' '.join([field_label, field_name])
-    if any(marker in raw_text for marker in ('反向提示词', '负向提示词', '负面提示词', '反向', '负向')):
-        return '反向提示词（不想出现什么）'
-    if any((token in joined for token in ['prompt', 'text', '描述', '文本', '内容'])):
-        return '文本指令（告诉模型这轮要做什么）'
+    if any(marker in raw_text for marker in ('\u53cd\u5411\u63d0\u793a\u8bcd', '\u8d1f\u5411\u63d0\u793a\u8bcd', '\u8d1f\u9762\u63d0\u793a\u8bcd', '\u53cd\u5411', '\u8d1f\u5411')):
+        return 'Negative prompt (what should not appear)'
+    # Chinese tokens in the matchers below are internal input aliases; never displayed
+    if any((token in joined for token in ['prompt', 'text', '\u63cf\u8ff0', '\u6587\u672c', '\u5185\u5bb9'])):
+        return 'Text instruction (tells the model what to do this round)'
     if 'batch_size' in joined:
-        return '生成数量（一次出几张）'
-    if any((token in joined for token in ['aspect_ratio', 'aspect-ratio', ' ratio', '比例', '画幅'])):
-        return '比例 / 画幅（横竖和构图比例）'
-    if any((token in joined for token in ['resolution', 'size', '规格', '分辨率', '清晰度'])):
-        return '尺寸 / 规格（清晰度或出图档位）'
+        return 'Generation count (how many per run)'
+    if any((token in joined for token in ['aspect_ratio', 'aspect-ratio', ' ratio', '\u6bd4\u4f8b', '\u753b\u5e45'])):
+        return 'Aspect ratio / frame (orientation and composition ratio)'
+    if any((token in joined for token in ['resolution', 'size', '\u89c4\u683c', '\u5206\u8fa8\u7387', '\u6e05\u6670\u5ea6'])):
+        return 'Size / spec (quality or output tier)'
     if 'width' in joined:
-        return '宽度（像素）'
+        return 'Width (pixels)'
     if 'height' in joined:
-        return '高度（像素）'
-    if any((token in joined for token in ['duration', '时长'])):
-        return '时长（秒）'
-    if 'seed' in joined or '随机' in joined:
-        return '随机性 / Seed（想复现时再固定）'
-    if any((token in joined for token in ['steps', 'step', '采样步数'])):
-        return '采样步数（细化强度）'
+        return 'Height (pixels)'
+    if any((token in joined for token in ['duration', '\u65f6\u957f'])):
+        return 'Duration (seconds)'
+    if 'seed' in joined or '\u968f\u673a' in joined:
+        return 'Randomness / Seed (fix it when you want to reproduce)'
+    if any((token in joined for token in ['steps', 'step', '\u91c7\u6837\u6b65\u6570'])):
+        return 'Sampling steps (refinement strength)'
     if 'cfg' in joined:
-        return '提示词强度（贴合文本的力度）'
+        return 'Prompt strength (how strongly to follow the text)'
     if 'guidance' in tokens and 'scale' in tokens:
-        return '提示词强度（贴合文本的力度）'
-    if any((token in joined for token in ['strength', 'denoise', '重绘强度'])):
-        return '重绘强度（改动原图的力度）'
+        return 'Prompt strength (how strongly to follow the text)'
+    if any((token in joined for token in ['strength', 'denoise', '\u91cd\u7ed8\u5f3a\u5ea6'])):
+        return 'Redraw strength (how much the source image changes)'
     if 'sampler' in tokens:
-        return '采样方式（生成策略）'
+        return 'Sampling method (generation strategy)'
     if 'quality' in tokens:
-        return '画质档位'
+        return 'Quality tier'
     if 'weight' in tokens:
-        return '权重设置（影响力度）'
+        return 'Weight setting (influence strength)'
     if 'temperature' in tokens:
-        return '随机发散度'
+        return 'Random divergence'
     if 'top' in tokens and 'p' in tokens:
-        return '采样范围（Top P）'
-    if any((token in joined for token in ['model', 'checkpoint', '档位'])):
-        return '模型档位'
+        return 'Sampling range (Top P)'
+    if any((token in joined for token in ['model', 'checkpoint', '\u6863\u4f4d'])):
+        return 'Model tier'
     if field_label:
         if _contains_cjk(field_label):
             return field_label
     if field_name and _contains_cjk(field_name):
         return field_name
-    token_labels = {'image': '图片', 'audio': '音频', 'video': '视频', 'prompt': '提示词', 'text': '文本', 'seed': 'Seed', 'random': '随机', 'ratio': '比例', 'aspect': '画幅', 'size': '规格', 'resolution': '分辨率', 'width': '宽度', 'height': '高度', 'duration': '时长', 'step': '步数', 'steps': '步数', 'cfg': '提示词强度', 'guidance': '引导强度', 'scale': '强度', 'strength': '重绘强度', 'denoise': '降噪强度', 'model': '模型', 'checkpoint': '模型', 'sampler': '采样', 'quality': '画质', 'weight': '权重', 'temperature': '随机度', 'count': '数量', 'batch': '批量'}
+    token_labels = {'image': 'image', 'audio': 'audio', 'video': 'video', 'prompt': 'prompt', 'text': 'text', 'seed': 'Seed', 'random': 'random', 'ratio': 'ratio', 'aspect': 'aspect', 'size': 'size', 'resolution': 'resolution', 'width': 'width', 'height': 'height', 'duration': 'duration', 'step': 'steps', 'steps': 'steps', 'cfg': 'prompt strength', 'guidance': 'guidance', 'scale': 'strength', 'strength': 'redraw strength', 'denoise': 'denoise strength', 'model': 'model', 'checkpoint': 'model', 'sampler': 'sampler', 'quality': 'quality', 'weight': 'weight', 'temperature': 'randomness', 'count': 'count', 'batch': 'batch'}
     translated_tokens: list[str] = []
     for token in tokens:
         label = token_labels.get(token)
         if label and label not in translated_tokens:
             translated_tokens.append(label)
     if translated_tokens:
-        return f"其他可控参数（{' / '.join(translated_tokens[:3])}）"
-    type_labels = {'number': '数值项', 'slider': '数值项', 'select': '选项', 'dropdown': '选项', 'radio': '选项', 'checkbox': '开关项', 'switch': '开关项', 'boolean': '开关项', 'text': '文本项', 'textarea': '文本项', 'customtext': '文本项'}
+        return f"Other controllable parameters ({' / '.join(translated_tokens[:3])})"
+    type_labels = {'number': 'number', 'slider': 'number', 'select': 'choice', 'dropdown': 'choice', 'radio': 'choice', 'checkbox': 'toggle', 'switch': 'toggle', 'boolean': 'toggle', 'text': 'text', 'textarea': 'text', 'customtext': 'text'}
     type_label = type_labels.get(field_type)
     if type_label:
-        return f'其他可控参数（{type_label}）'
-    return '其他可控参数（需确认）'
+        return f'Other controllable parameters ({type_label})'
+    return 'Other controllable parameters (needs confirmation)'

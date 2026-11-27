@@ -1,61 +1,88 @@
-"""dispatch.py 的公共逻辑 + 10 个固定模型（图片 5 + 视频 5）+ 4 类搜索路由（图片/视频 × ModelZoo/AI 应用）的元数据。
+"""Shared logic for dispatch.py + the 10 fixed models (5 image + 5 video) + metadata for the 4 search entries (image/video × ModelZoo / AI app).
 
-承载 dispatch.py 跑起来需要的几样东西：
-  - APP_SCRIPT / DISPATCH_SCRIPT: 子进程调度时拼命令的路径常量
-  - MODEL_MAP: 用户输入的别名 → 内部 slug
-  - ROUTE_TABLE: slug → ModelZoo endpoint + modality（**加新菜单模型从这里改**）
-  - SCENE_NUMBER_MAP: 菜单数字 → slug（"5" → "b2-t2i" / "v2" → "happyhorse-t2v" / "6" → "modelzoo-search-flow" / "7" → "remote-search-flow"）
-  - COMPILER_RULES: slug → defaults。**只有 defaults，没有 fields**——字段集合 / 中文标签 / 可选值全部从远端 contract 动态拿
-  - IMAGE_SCENE_MENU / VIDEO_SCENE_MENU: 用户看到的菜单文案（从 config/menus.json 加载）
-  - 各种 runtime_state（续跑缓存）、batch policy、subprocess 调度工具
+Carries the pieces dispatch.py needs in order to run:
+  - APP_SCRIPT / DISPATCH_SCRIPT: path constants used to compose subprocess commands
+  - MODEL_MAP: user input aliases → internal slug
+  - ROUTE_TABLE: slug → ModelZoo endpoint + modality (**to add a new menu model, change it here**)
+  - SCENE_NUMBER_MAP: menu number → slug ("5" → "b2-t2i" / "v2" → "happyhorse-t2v" / "6" → "modelzoo-search-flow" / "7" → "remote-search-flow")
+  - COMPILER_RULES: the model list for slug → {'defaults': {}}. **Defaults are not here** — the parameter set / defaults / labels / options all come dynamically from the remote contract
+  - IMAGE_SCENE_MENU / VIDEO_SCENE_MENU: the menu text the user sees (loaded from config/menus.json)
+  - the various runtime_state (resume cache) items, batch policy, and subprocess dispatch helpers
 
-【加一个新菜单模型怎么改】
-  1) ROUTE_TABLE 加一行 {'slug': {'endpoint': '<modelzoo-endpoint>', 'modality': 'image/video'}}（注：表是从 config/routes.json 加载的，要加去那里的 image / video 段）
-  2) MODEL_MAP 加几条别名 → slug
-  3) config/routes.json 的 scene_number_map 占用一个空槽位
-  4) config/menus.json 的对应菜单文案补一行
-  5) display_model_name 的 names 表加一条
-  6) （可选）COMPILER_RULES 加 defaults，让卡片有合理的默认值
-  字段、可选值、中文标签、推荐文案——全都不用动，从远端 contract 自动拿。
+[How to add a new menu model]
+  1) Add a row to ROUTE_TABLE {'slug': {'endpoint': '<modelzoo-endpoint>', 'modality': 'image/video'}} (note: the table is loaded from config/routes.json, so add it to the image / video section there)
+  2) Add a few MODEL_MAP aliases → slug
+  3) Take an empty slot in scene_number_map of config/routes.json
+  4) Add a line of menu text to the matching entry of config/menus.json
+  5) Display name: write "name" for that slug in config/routes.json; MODEL_DISPLAY_NAMES picks it up automatically.
+      When it is missing, fall back to the slug itself; never hardcode model names in code
+  6) COMPILER_RULES picks the slug up automatically (used to decide "emit a parameter card first / defaults allowed");
+      do not hardcode the actual defaults, they all come from the remote detail's field_value.
+  Fields, options, and labels — none of them need touching; they come from the remote contract automatically.
+  Model names inside the recommendation text (recommend_image_option / recommend_video_option) must always be
+  composed through slot_ref(), to avoid hardcoding model names — names always come from config/routes.json.
 """
 from __future__ import annotations
 import argparse, hashlib, json, os, re, subprocess, sys, time
 from collections.abc import Callable
 from pathlib import Path
-from paths import config_display_path as preferred_config_display_path, load_config_json, resolve_runtime_state_file
-from common import normalized_text
+from paths import load_config_json, resolve_runtime_state_file
+from common import normalized_text, is_discovery_query
+import capabilities
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-# 子进程调度的目标脚本路径。dispatch.py 把活分给 app.py（远端 CLI），
-# batch.py 把 batch worker 子进程分给 dispatch.py 自己。
-# 注意：千万别用 Path(__file__) 当 worker 入口——之前 batch.py 这么写过，
-# 因为 batch.py 没有 main()，导致整个 --batch-run 静默失败。
+# Target script paths for subprocess dispatch. dispatch.py hands the work to app.py (the remote CLI),
+# and batch.py hands the batch worker subprocess to dispatch.py itself.
+# Note: never use Path(__file__) as the worker entry point — batch.py did that before,
+# and because batch.py has no main(), the whole --batch-run failed silently.
 APP_SCRIPT = SCRIPT_DIR / 'app.py'
 
 DISPATCH_SCRIPT = SCRIPT_DIR / 'dispatch.py'
 
-# 用户输入的别名 → 内部 slug。键全部小写比较。
-MODEL_MAP = {'bpro-t2i': 'bpro-t2i', '通用图片b.pro': 'bpro-t2i', 'fkmax-t2i': 'fkmax-t2i', 'flux-2-klein': 'fkmax-t2i', 'flux klein': 'fkmax-t2i', 'flux kontext max': 'fkmax-t2i', '通用图片f.k.max': 'fkmax-t2i', 'seedream5-t2i': 'seedream5-t2i', '即梦5.0': 'seedream5-t2i', '即梦': 'seedream5-t2i', 'seedream': 'seedream5-t2i', 'o2-t2i': 'o2-t2i', '通用图片o.2': 'o2-t2i', 'b2-t2i': 'b2-t2i', '通用图片b.2': 'b2-t2i', 'v31pro-t2v': 'v31pro-t2v', '通用视频v.3.1.pro': 'v31pro-t2v', 'happyhorse-t2v': 'happyhorse-t2v', 'happyhorse': 'happyhorse-t2v', '快乐马': 'happyhorse-t2v', 'kling30-t2v': 'kling30-t2v', 'kling3.0': 'kling30-t2v', 'kling': 'kling30-t2v', 'wan27-t2v': 'wan27-t2v', 'wan2.7': 'wan27-t2v', 'wan': 'wan27-t2v', 'seedance2-t2v': 'seedance2-t2v', 'seedance': 'seedance2-t2v', 'seedance 2.0': 'seedance2-t2v'}
+# User input aliases → internal slug. All keys are compared lowercase. Model names come from
+# config/routes.json "name"; only the ways a user might refer to a model live here.
+# The non-ASCII entries below are internal input aliases; never displayed.
+MODEL_MAP = {
+    'bpro-t2i': 'bpro-t2i', 'fkmax-t2i': 'fkmax-t2i', 'seedream5-t2i': 'seedream5-t2i', 'o2-t2i': 'o2-t2i', 'b2-t2i': 'b2-t2i',
+    'v31pro-t2v': 'v31pro-t2v', 'happyhorse-t2v': 'happyhorse-t2v', 'kling30-t2v': 'kling30-t2v', 'wan27-t2v': 'wan27-t2v', 'seedance2-t2v': 'seedance2-t2v',
+    '\u901a\u4e49\u5343\u95ee': 'bpro-t2i', '\u901a\u4e49\u5343\u95ee image 2.1': 'bpro-t2i', 'qwen image': 'bpro-t2i', 'qwen image 2.1': 'bpro-t2i', 'qwen-image-2.1': 'bpro-t2i', 'qwen': 'bpro-t2i',
+    'flux 3': 'fkmax-t2i', 'flux3': 'fkmax-t2i', 'flux-3': 'fkmax-t2i', 'flux': 'fkmax-t2i',
+    'seedream 5.0 flash': 'seedream5-t2i', 'seedream 5.0': 'seedream5-t2i', 'seedream flash': 'seedream5-t2i', 'seedream': 'seedream5-t2i', '\u5373\u68a6': 'seedream5-t2i',
+    'nano banana': 'o2-t2i', 'nano banana 2.1': 'o2-t2i', 'nano-banana-2.1': 'o2-t2i',
+    'gpt image': 'b2-t2i', 'gpt image 2.5': 'b2-t2i', 'gpt image 2.5 sunburst': 'b2-t2i', 'gpt-image-2.5': 'b2-t2i', 'sunburst': 'b2-t2i',
+    'flux 3 video': 'v31pro-t2v', 'flux 3 \u89c6\u9891': 'v31pro-t2v',
+    'happy horse': 'happyhorse-t2v', 'happy horse 1.1': 'happyhorse-t2v', 'happyhorse': 'happyhorse-t2v', 'happyhorse 1.1': 'happyhorse-t2v', '\u5feb\u4e50\u9a6c': 'happyhorse-t2v',
+    '\u53ef\u7075': 'kling30-t2v', '\u53ef\u7075 3.0 pro': 'kling30-t2v', '\u53ef\u70753.0': 'kling30-t2v', 'kling 3.0 pro': 'kling30-t2v', 'kling 3.0': 'kling30-t2v', 'kling': 'kling30-t2v',
+    '\u4e07\u76f8': 'wan27-t2v', '\u4e07\u76f8 2.7': 'wan27-t2v', 'wan 2.7': 'wan27-t2v', 'wan2.7': 'wan27-t2v', 'wan': 'wan27-t2v',
+    'seedance': 'seedance2-t2v', 'seedance 2.0': 'seedance2-t2v',
+}
 
-# 用户没明确指模型时，按 task 类型回落到的默认 slug。
+# Default slug to fall back to by task type when the user did not name a model.
 TASK_DEFAULTS = {'text-to-image': 'bpro-t2i', 'illustration-anime': 'bpro-t2i', 'commercial-visual': 'seedream5-t2i', 'text-layout-image': 'o2-t2i', 'text-to-video': 'wan27-t2v', 'cinematic-video': 'v31pro-t2v'}
 
-# slug → ModelZoo endpoint + 模态。固定模型直接调 ModelZoo API 执行，非固定模型走 app.py webapp 路径。
-# 路由表和菜单从 config/ 加载（**加新菜单模型只改 config/routes.json + config/menus.json**）
+# slug → ModelZoo endpoint + modality. Fixed models call the ModelZoo API directly; other models go through the app.py webapp path.
+# The routing table and menus are loaded from config/ (**to add a new menu model, only edit config/routes.json + config/menus.json**)
 def _load_routes_config():
     config_dir = SCRIPT_DIR.parent / 'config'
     routes_file = config_dir / 'routes.json'
     if routes_file.exists():
         data = json.loads(routes_file.read_text(encoding='utf-8'))
         table = {}
+        # The model display name comes from the name field of routes.json; menu recommendations / execution hints
+        # all use it, and no model name is hardcoded in code.
+        names = {}
         for slug, info in (data.get('image') or {}).items():
             table[slug] = {'endpoint': info['endpoint'], 'modality': 'image'}
+            if info.get('name'):
+                names[slug] = info['name']
         for slug, info in (data.get('video') or {}).items():
             table[slug] = {'endpoint': info['endpoint'], 'modality': 'video'}
-        return table, data.get('scene_number_map') or {}
-    return {}, {}
+            if info.get('name'):
+                names[slug] = info['name']
+        return table, data.get('scene_number_map') or {}, names
+    return {}, {}, {}
 
 def _load_menus_config():
     config_dir = SCRIPT_DIR.parent / 'config'
@@ -65,20 +92,28 @@ def _load_menus_config():
         return data.get('image_menu', ''), data.get('video_menu', '')
     return '', ''
 
-_rt, _snm = _load_routes_config()
+_rt, _snm, _cfg_names = _load_routes_config()
 _im, _vm = _load_menus_config()
 ROUTE_TABLE = _rt
 IMAGE_SCENE_MENU = _im
 VIDEO_SCENE_MENU = _vm
 SCENE_NUMBER_MAP = _snm
+# Display names (from the name field of config/routes.json) — the single source of names for menus, recommendations, and execution hints.
+MODEL_DISPLAY_NAMES = _cfg_names
 
-# slug → 默认参数。**只有 defaults，没有 fields**——字段集合 / 中文标签 / 可选值
-# 全部从远端 contract 动态拿（见 remote.choose_remote_field_display_label
-# / humanize_remote_prefill_label）。这里的 defaults 用来在两个地方兜底：
-#   1) card.compile_card_selection 里"用户没填、notes 也没推断"的字段
-#   2) batch.should_batch_use_defaults 用来判断这个 model 是否走"无参数直接跑"
-# 加新模型可以不写 defaults，写了就当兜底。
-COMPILER_RULES = {'bpro-t2i': {'defaults': {'aspect_ratio': '1:1', 'resolution': '4K'}}, 'fkmax-t2i': {'defaults': {'width': 1536, 'height': 1024}}, 'seedream5-t2i': {'defaults': {'aspect_ratio': '4:3', 'resolution': '2K'}}, 'o2-t2i': {'defaults': {'width': 1280, 'height': 1280}}, 'b2-t2i': {'defaults': {'aspect_ratio': '2:3', 'resolution': '2k'}}, 'v31pro-t2v': {'defaults': {'model_name': 'veo3.1-pro', 'aspect_ratio': '16:9'}}, 'happyhorse-t2v': {'defaults': {'aspect_ratio': '16:9', 'resolution': '1080P', 'duration': 7}}, 'kling30-t2v': {'defaults': {'model_name': 'kling-v3.0-std', 'aspect_ratio': '1:1', 'duration': 3}}, 'wan27-t2v': {'defaults': {'resolution': '720*1280', 'duration': 5}}, 'seedance2-t2v': {'defaults': {'duration': 10, 'resolution': '768P'}}}
+# slug → default parameters. **Only defaults, no fields** — the field set / labels / options
+# all come dynamically from the remote contract (see remote.choose_remote_field_display_label
+# / humanize_remote_prefill_label). The defaults here only act as a fallback in two places:
+#   1) fields in card.compile_card_selection that "the user did not fill in and notes did not infer"
+#   2) batch.should_batch_use_defaults, to decide whether this model runs "with no parameters at all"
+# A new model may omit defaults; if given, they are a fallback.
+# Which fixed models need the "show a parameter card first / may explicitly take defaults" behavior marker.
+#
+# Note: **only the slug list is kept here, defaults are always empty**. The real defaults come from the
+# remote detail's input_params[].field_value (see modelzoo.build_task_payload).
+# Historical lesson: resolution=4K / 720*1280 / 768P used to be hardcoded here, which did not match the
+# remote schema and made default-parameter submissions return 400. Never write concrete parameter values here again.
+COMPILER_RULES = {slug: {'defaults': {}} for slug in ROUTE_TABLE}
 
 CONFIGURED_MAX_BATCH_CONCURRENCY_FALLBACK = 3
 
@@ -98,17 +133,21 @@ RUNTIME_SESSION_ID_ENV = 'BIZYAIR_SESSION_ID'
 
 HOST_SESSION_TOKEN_KEYS = ['CODEX_THREAD_ID', 'TERM_SESSION_ID', 'TMUX', 'STY', 'KITTY_WINDOW_ID', 'KITTY_PID', 'WEZTERM_PANE']
 
-INHERIT_MARKERS = ['跟刚才一样', '和刚才一样', '按刚才', '同上', '上一轮', '沿用刚才', '继续刚才', '保持刚才', '和上次一样', '跟上次一样', '按上次', '沿用上次', '继续上次', '保持上次', '照上次', 'same as before', 'same as last time']
+# internal input alias; never displayed
+INHERIT_MARKERS = ['\u8ddf\u521a\u624d\u4e00\u6837', '\u548c\u521a\u624d\u4e00\u6837', '\u6309\u521a\u624d', '\u540c\u4e0a', '\u4e0a\u4e00\u8f6e', '\u6cbf\u7528\u521a\u624d', '\u7ee7\u7eed\u521a\u624d', '\u4fdd\u6301\u521a\u624d', '\u548c\u4e0a\u6b21\u4e00\u6837', '\u8ddf\u4e0a\u6b21\u4e00\u6837', '\u6309\u4e0a\u6b21', '\u6cbf\u7528\u4e0a\u6b21', '\u7ee7\u7eed\u4e0a\u6b21', '\u4fdd\u6301\u4e0a\u6b21', '\u7167\u4e0a\u6b21', 'same as before', 'same as last time']
 
-RUN_AUTH_MARKERS = ['开跑', '直接跑', '确认执行', '确认生成', '开始生成', '生成吧', '开始吧', '提交吧', '跑吧', 'go ahead', 'run it', 'confirm run', 'confirm execution']
+# internal input alias; never displayed
+RUN_AUTH_MARKERS = ['\u5f00\u8dd1', '\u76f4\u63a5\u8dd1', '\u786e\u8ba4\u6267\u884c', '\u786e\u8ba4\u751f\u6210', '\u5f00\u59cb\u751f\u6210', '\u751f\u6210\u5427', '\u5f00\u59cb\u5427', '\u63d0\u4ea4\u5427', '\u8dd1\u5427', 'go ahead', 'run it', 'confirm run', 'confirm execution']
 
-RUN_AUTH_NEGATION_MARKERS = ['不要直接跑', '先别直接跑', '先不要直接跑', '别直接跑', '不要跑', '先别跑', '先不跑', '先不要跑', '不要执行', '先别执行', '先不执行', '不要生成', '先别生成', '先不生成', '不直接执行', '暂不执行']
+# internal input alias; never displayed
+RUN_AUTH_NEGATION_MARKERS = ['\u4e0d\u8981\u76f4\u63a5\u8dd1', '\u5148\u522b\u76f4\u63a5\u8dd1', '\u5148\u4e0d\u8981\u76f4\u63a5\u8dd1', '\u522b\u76f4\u63a5\u8dd1', '\u4e0d\u8981\u8dd1', '\u5148\u522b\u8dd1', '\u5148\u4e0d\u8dd1', '\u5148\u4e0d\u8981\u8dd1', '\u4e0d\u8981\u6267\u884c', '\u5148\u522b\u6267\u884c', '\u5148\u4e0d\u6267\u884c', '\u4e0d\u8981\u751f\u6210', '\u5148\u522b\u751f\u6210', '\u5148\u4e0d\u751f\u6210', '\u4e0d\u76f4\u63a5\u6267\u884c', '\u6682\u4e0d\u6267\u884c']
 
 def resolve_model(task: str | None, model: str | None) -> str:
     if model:
         normalized = model.strip()
-        mapped = MODEL_MAP.get(normalized, MODEL_MAP.get(normalized.lower(), normalized))
-        return mapped
+        lowered = normalized.lower()
+        # Exact match first, then lowercase match, then pass the input through as a slug (unknown names are reported by the caller).
+        return MODEL_MAP.get(normalized) or MODEL_MAP.get(lowered) or normalized
     if task and task in TASK_DEFAULTS:
         return TASK_DEFAULTS[task]
     return 'bpro-t2i'
@@ -120,72 +159,217 @@ def looks_like_image_edit_prompt(prompt: str | None) -> bool:
     q = normalized_text(prompt)
     if not q:
         return False
-    if has_any(q, ['改图', '重绘', '换背景', '局部重绘', '图生图', '参考图', '扩图', '修图', '抠图']):
+    # internal input alias; never displayed
+    if has_any(q, ['\u6539\u56fe', '\u91cd\u7ed8', '\u6362\u80cc\u666f', '\u53bb\u6389\u80cc\u666f', '\u53bb\u9664\u80cc\u666f', '\u79fb\u9664\u80cc\u666f', '\u80cc\u666f\u79fb\u9664', '\u62a0\u56fe', '\u900f\u660e\u5e95', '\u767d\u5e95\u56fe', '\u5c40\u90e8\u91cd\u7ed8', '\u56fe\u751f\u56fe', '\u53c2\u8003\u56fe', '\u6269\u56fe', '\u4fee\u56fe']):
         return True
-    background_edit_patterns = ['换.{0,3}背景', '改.{0,3}背景', '背景.{0,3}换', '背景.{0,3}改']
+    # internal input alias; never displayed (Chinese phrases are matched, never printed)
+    background_edit_patterns = ['\u6362.{0,3}\u80cc\u666f', '\u6539.{0,3}\u80cc\u666f', '\u80cc\u666f.{0,3}\u6362', '\u80cc\u666f.{0,3}\u6539']
     return any((re.search(pattern, q) for pattern in background_edit_patterns))
+
+def slot_ref(option: str, model: str) -> str:
+    """Build the "option N (<model name>)" reference fragment.
+
+    Model names that start with an ASCII letter/digit already read fine after the space,
+    so no extra separator is needed.
+    """
+    name = model_bare_name(model)
+    return f'option {option} ({name})'
+
+def wants_explicit_ai_app(q: str) -> bool:
+    """Whether the user explicitly wants a community AI app / workflow rather than just describing a generation need."""
+    # internal input alias; never displayed
+    return has_any(q, ['ai \u5e94\u7528', 'ai\u5e94\u7528', '\u793e\u533a\u5e94\u7528', '\u5e94\u7528', 'app', 'workflow', '\u5de5\u4f5c\u6d41', '\u73a9\u6cd5'])
 
 def recommend_image_option(prompt: str | None, images: list[str] | None) -> tuple[str, str]:
     q = normalized_text(prompt)
     image_count = len(images or [])
-    if image_count >= 1 or looks_like_image_edit_prompt(q):
-        return ('7', '你这次更像图生图 / 图片编辑路线，5 个精选模型都是文生图，我更建议直接走 7 号 AI 应用检索，那边有现成的编辑工作流。')
-    if has_any(q, ['endpoint', '调用api', '调用 api', '按次扣费', '底层模型', 'modelzoo', 'model zoo', '模型api', '模型 api']):
-        return ('6', '你这是想直接调底层模型 API，那走 6 号 ModelZoo 搜索更对路——参数明确、按次扣费稳定。')
-    if has_any(q, ['海报', '广告', 'kv', '主视觉', '封面']):
-        return ('3', '你这类目标很像主视觉成稿，3 号 Seedream 5.0 往往会更会给你那股“能直接拿去用”的味道。')
-    if has_any(q, ['中文', '汉字', '排版', '标题字', '字效', 'logo字']):
-        return ('4', '你这里明显很在意中文文字和排版别翻车，那我会更偏向先推 4 号通用图片O.2。')
-    if has_any(q, ['写实', '质感', '摄影', '人像', '大片', '写真']):
-        return ('2', '你这类要求更像“别太AI、最好有点真拍质感”，那我会更想让你先看 2 号通用图片F.K.Max。')
-    if has_any(q, ['细节', '高级感', '电商', '商品图', '详情页', '审美']):
-        return ('5', '你这类更看重细节、质感和审美，我会更愿意把 5 号通用图片B.2 往前推。')
-    if has_any(q, ['快一点', '快速', '先来一版', '先出一张', '赶时间']):
-        return ('5', '你现在更像是先抢速度、先拿版本感受方向，那 5 号通用图片B.2 会更顺手——它本来就是“节奏更快”那一档。')
-    return ('1', '你这类还没特别卡死风格，那就先从 1 号通用图片B.Pro 试，容错会更高。')
+    if wants_explicit_ai_app(q):
+        return ('7', 'You explicitly asked for a community AI app / Workflow, so go with option 7; if you already have a link or ID, send it to me directly.')
+    if is_discovery_query(q):
+        capability = capabilities.detect(q)
+        capability_name = (capability or {}).get('label') or 'the relevant capability'
+        return ('6', f'You are asking "which services/solutions are available", not placing an order. I will first have option 6 (ModelZoo) return runnable endpoints for "{capability_name}", then ask whether you want me to also check AI apps / Workflows.')
+    # v1.12.4: fuzzy/short requests default to ModelZoo. Image-to-image/editing looks for the underlying endpoint first,
+    # and no longer pushes the user into the slow, literal-matching AI app search by default.
+    capability = capabilities.detect(q)
+    if capability and capability.get('name') == 'background_removal':
+        return ('6', 'This is a background removal / cutout request. ModelZoo has a dedicated background-remover endpoint: it only needs an image, no prompt, and it is faster than searching AI apps. When you want to keep shadows or swap in a new background, use general editing instead.')
+    if capability and capability.get('name') == 'style_transfer':
+        return ('6', 'This is image style transfer. ModelZoo general image edit / image-to-image endpoints can constrain the style through the prompt, so start with option 6 to find a runnable endpoint; only go to option 7 when you explicitly want a specific community app/workflow.')
+    if capability or image_count >= 1 or looks_like_image_edit_prompt(q):
+        return ('6', 'This looks like an image-to-image / image editing route. Start with option 6 (ModelZoo) and search for image edit / image-to-image endpoints: the parameters are explicit and billing is per run, which is faster than hunting keywords inside AI apps. Only go to option 7 when you explicitly want a specific community app/workflow.')
+    # internal input alias; never displayed
+    if has_any(q, ['endpoint', '\u8c03\u7528api', '\u8c03\u7528 api', '\u6309\u6b21\u6263\u8d39', '\u5e95\u5c42\u6a21\u578b', 'modelzoo', 'model zoo', '\u6a21\u578bapi', '\u6a21\u578b api']):
+        return ('6', 'You want to call the underlying model API directly, so option 6 (ModelZoo) search is the better fit: explicit parameters and stable per-run billing.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u6d77\u62a5', '\u5e7f\u544a', 'kv', '\u4e3b\u89c6\u89c9', '\u5c01\u9762']):
+        return ('3', f'Your goal looks like a key-visual final render, and {slot_ref("3", "seedream5-t2i")} usually gives you that "ready to use" feel.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u4e2d\u6587', '\u6c49\u5b57', '\u6392\u7248', '\u6807\u9898\u5b57', '\u5b57\u6548', 'logo\u5b57']):
+        # Text/layout needs map to option 2 FLUX 3 (text rendering is where this tier shines).
+        return ('2', f'You clearly care that the text and layout inside the frame do not fall apart, so I would lean toward {slot_ref("2", "fkmax-t2i")} first — text rendering is exactly where this tier shines.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u5199\u5b9e', '\u8d28\u611f', '\u6444\u5f71', '\u4eba\u50cf', '\u5927\u7247', '\u5199\u771f']):
+        return ('2', f'Your request sounds more like "not too AI, ideally with a real-shot texture", so I would rather have you look at {slot_ref("2", "fkmax-t2i")} first.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u7ec6\u8282', '\u9ad8\u7ea7\u611f', '\u7535\u5546', '\u5546\u54c1\u56fe', '\u8be6\u60c5\u9875', '\u5ba1\u7f8e']):
+        # Split by purpose: product/commercial final renders go to option 3 Seedream 5.0 Flash; pure detail/texture goes to option 2 FLUX 3.
+        # internal input alias; never displayed
+        if has_any(q, ['\u7535\u5546', '\u5546\u54c1\u56fe', '\u8be6\u60c5\u9875']):
+            return ('3', f'This looks more like a product/commercial final render you can publish directly, so I would rather push {slot_ref("3", "seedream5-t2i")} forward.')
+        return ('2', f'You care more about detail, texture and aesthetics here, so I would rather push {slot_ref("2", "fkmax-t2i")} forward.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u5feb\u4e00\u70b9', '\u5feb\u901f', '\u5148\u6765\u4e00\u7248', '\u5148\u51fa\u4e00\u5f20', '\u8d76\u65f6\u95f4']):
+        return ('5', f'You seem to want speed first and a version to feel out the direction, so {slot_ref("5", "b2-t2i")} is easier — it is the "faster pace" tier.')
+    return ('1', f'You have not locked the style down yet, so try {slot_ref("1", "bpro-t2i")} first — it is more forgiving.')
 
 def recommend_video_option(prompt: str | None, images: list[str] | None, audios: list[str] | None) -> tuple[str, str]:
     q = normalized_text(prompt)
     image_count = len(images or [])
     audio_count = len(audios or [])
-    if image_count >= 1 or audio_count >= 1 or has_any(q, ['图生视频', '首尾帧', '首帧', '尾帧', '过渡', '转场', '对口型', '口播', '说话', '嘴型', '音频', '配音', '唱歌']):
-        return ('7', '你这次不是纯文生视频，5 个精选模型都不太贴，我更建议直接走 7 号 AI 应用检索，那边的工作流模板对路得多。')
-    if has_any(q, ['endpoint', '调用api', '调用 api', '按次扣费', '底层模型', 'modelzoo', 'model zoo', '模型api', '模型 api']):
-        return ('6', '你这是想直接调底层视频模型 API，那走 6 号 ModelZoo 搜索更对路——参数明确、按次扣费稳定。')
-    if has_any(q, ['电影感', '镜头', '光影', '质感', '大片']):
-        return ('1', '你这类明显冲着电影感和镜头语言去的，那我会更想先推 1 号通用视频V.3.1.Pro。')
-    if has_any(q, ['剧情', '叙事', '分镜', '讲故事', '连续场景']):
-        return ('2', '你这次更想先快速出一版看方向，那 2 号 HappyHorse 会比较顺手——出片快、性价比舒服。')
-    if has_any(q, ['动作', '打斗', '运动', '快节奏', '冲击力']):
-        return ('3', '你这个就是要动起来、要有劲，那我会更偏向先让你看 3 号可灵3.0.Pro。')
-    if has_any(q, ['中文', '稳定', '量产', '广告脚本', '省钱']):
-        return ('4', '你这类更像要稳定量产、中文别跑偏，那 4 号万相2.7 会更省心。')
-    if has_any(q, ['表现力', '演绎', '人物动作', '表情', '风格化']):
-        return ('5', '你这类更看重人物演绎和动态味道，那 5 号 Seedance 2.0 会更讨喜。')
-    return ('4', '你这类还没把风格卡太死，那先看 4 号万相2.7，一般会更稳。')
+    if wants_explicit_ai_app(q):
+        return ('7', 'You explicitly asked for a community AI app / Workflow, so go with option 7; if you already have a link or ID, send it to me directly.')
+    if is_discovery_query(q):
+        capability = capabilities.detect(q)
+        capability_name = (capability or {}).get('label') or 'the relevant capability'
+        return ('6', f'You are asking "which services/solutions are available", not placing an order. I will first have option 6 (ModelZoo) return runnable endpoints for "{capability_name}", then ask whether you want me to also check AI apps / Workflows.')
+    # v1.12.4: image-to-video / lip-sync etc. look for ModelZoo image-to-video / lip-sync endpoints first.
+    # internal input alias; never displayed
+    if image_count >= 1 or audio_count >= 1 or has_any(q, ['\u56fe\u751f\u89c6\u9891', '\u9996\u5c3e\u5e27', '\u9996\u5e27', '\u5c3e\u5e27', '\u8fc7\u6e21', '\u8f6c\u573a', '\u5bf9\u53e3\u578b', '\u53e3\u64ad', '\u8bf4\u8bdd', '\u5634\u578b', '\u97f3\u9891', '\u914d\u97f3', '\u5531\u6b4c']):
+        return ('6', 'This is not plain text-to-video. Start with option 6 (ModelZoo) and search for image-to-video / lip-sync endpoints (for example PixVerse image-to-video); that is more direct than searching inside AI apps. Only go to option 7 when you explicitly want a specific community app/workflow.')
+    # internal input alias; never displayed
+    if has_any(q, ['endpoint', '\u8c03\u7528api', '\u8c03\u7528 api', '\u6309\u6b21\u6263\u8d39', '\u5e95\u5c42\u6a21\u578b', 'modelzoo', 'model zoo', '\u6a21\u578bapi', '\u6a21\u578b api']):
+        return ('6', 'You want to call the underlying video model API directly, so option 6 (ModelZoo) search is the better fit: explicit parameters and stable per-run billing.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u7535\u5f71\u611f', '\u955c\u5934', '\u5149\u5f71', '\u8d28\u611f', '\u5927\u7247']):
+        return ('1', f'You are clearly after a cinematic feel and shot language, so I would like to push {slot_ref("1", "v31pro-t2v")} first.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u5267\u60c5', '\u53d9\u4e8b', '\u5206\u955c', '\u8bb2\u6545\u4e8b', '\u8fde\u7eed\u573a\u666f']):
+        return ('2', f'You want a quick first version to feel out the direction, so {slot_ref("2", "happyhorse-t2v")} is easier — fast output at a comfortable cost/performance ratio.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u52a8\u4f5c', '\u6253\u6597', '\u8fd0\u52a8', '\u5feb\u8282\u594f', '\u51b2\u51fb\u529b']):
+        return ('3', f'This one needs to move and hit hard, so I would rather have you look at {slot_ref("3", "kling30-t2v")} first.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u4e2d\u6587', '\u7a33\u5b9a', '\u91cf\u4ea7', '\u5e7f\u544a\u811a\u672c', '\u7701\u94b1']):
+        return ('4', f'This looks like stable mass production where Chinese must not drift, so {slot_ref("4", "wan27-t2v")} is less trouble.')
+    # internal input alias; never displayed
+    if has_any(q, ['\u8868\u73b0\u529b', '\u6f14\u7ece', '\u4eba\u7269\u52a8\u4f5c', '\u8868\u60c5', '\u98ce\u683c\u5316']):
+        return ('5', f'You care more about character performance and a dynamic feel, so {slot_ref("5", "seedance2-t2v")} will land better.')
+    return ('4', f'You have not locked the style down yet, so look at {slot_ref("4", "wan27-t2v")} first — it is usually more stable.')
+
+def discovery_menu_note(prompt: str | None) -> str:
+    if not is_discovery_query(prompt) or wants_explicit_ai_app(normalized_text(prompt)):
+        return ''
+    return (
+        '\n\n🔎 **You are asking "which services are available"**: this menu only gives a first direction across ModelZoo / featured models. '
+        'AI apps and Workflows may cover this capability too; want me to keep checking? Reply "check apps" / "check workflows" / "check both".'
+    )
+
+
+def _menu_options(entries: list[tuple[str, str]], *, modality: str) -> list[dict[str, Any]]:
+    """Build structured menu options.
+
+    entries are (display number, scene key) pairs. The display number is what the human-facing
+    menu shows ("reply 1-7"); the scene key is the canonical --scene value ("4" for image,
+    "v4" for video). Keeping both avoids the old mismatch where a recommendation of "4"
+    could not be matched to video options numbered "v1"..."v5".
+    """
+    options: list[dict[str, Any]] = []
+    for display_number, scene_key in entries:
+        slug = SCENE_NUMBER_MAP.get(scene_key)
+        if not slug or slug not in ROUTE_TABLE:
+            continue
+        options.append({
+            'number': display_number,
+            'option_index': int(display_number),
+            'scene_number': scene_key,
+            'type': 'model',
+            'id': slug,
+            'name': MODEL_DISPLAY_NAMES.get(slug) or slug,
+            'endpoint': ROUTE_TABLE[slug].get('endpoint'),
+            'modality': ROUTE_TABLE[slug].get('modality') or modality,
+        })
+    options.append({'number': '6', 'option_index': 6, 'scene_number': 'v6' if modality == 'video' else '6', 'type': 'modelzoo_search', 'name': 'ModelZoo search'})
+    options.append({'number': '7', 'option_index': 7, 'scene_number': 'v7' if modality == 'video' else '7', 'type': 'ai_app_search', 'name': 'AI app search'})
+    return options
+
+
+def build_image_menu_payload(prompt: str | None, images: list[str] | None) -> dict[str, Any]:
+    option, reason = recommend_image_option(prompt, images)
+    options = _menu_options([('1', '1'), ('2', '2'), ('3', '3'), ('4', '4'), ('5', '5')], modality='image')
+    scene_key = next((item['scene_number'] for item in options if item['number'] == option), option)
+    return {
+        'menu_type': 'image',
+        'recommended_option': option,
+        'recommended_scene_number': scene_key,
+        'reason': reason,
+        'options': options,
+        'discovery_note': discovery_menu_note(prompt) or None,
+    }
+
+
+def build_video_menu_payload(prompt: str | None, images: list[str] | None, audios: list[str] | None) -> dict[str, Any]:
+    option, reason = recommend_video_option(prompt, images, audios)
+    options = _menu_options([('1', 'v1'), ('2', 'v2'), ('3', 'v3'), ('4', 'v4'), ('5', 'v5')], modality='video')
+    scene_key = next((item['scene_number'] for item in options if item['number'] == option), option)
+    return {
+        'menu_type': 'video',
+        'recommended_option': option,
+        'recommended_scene_number': scene_key,
+        'reason': reason,
+        'options': options,
+        'discovery_note': discovery_menu_note(prompt) or None,
+    }
+
 
 def build_image_menu_message(prompt: str | None, images: list[str] | None) -> str:
     (option, reason) = recommend_image_option(prompt, images)
-    return f'{IMAGE_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-7 就行；你明确说模型名、编号，也可以直接按那个走。'
+    return f'{IMAGE_SCENE_MENU}\nI suggest looking at option {option} first — {reason}\nJust reply 1-7; if you name a model or number explicitly, we follow that instead.{discovery_menu_note(prompt)}'
 
 def build_video_menu_message(prompt: str | None, images: list[str] | None, audios: list[str] | None) -> str:
     (option, reason) = recommend_video_option(prompt, images, audios)
-    return f'{VIDEO_SCENE_MENU}\n我建议你优先看看 {option} 号～ {reason}\n回 1-7 就行；你明确说模型名、编号，也可以直接按那个走。'
+    return f'{VIDEO_SCENE_MENU}\nI suggest looking at option {option} first — {reason}\nJust reply 1-7; if you name a model or number explicitly, we follow that instead.{discovery_menu_note(prompt)}'
+
+def is_modelzoo_endpoint(value: str | None) -> bool:
+    """Whether a batch/dispatch target is an arbitrary ModelZoo endpoint ID.
+
+    Fixed routes use slugs such as ``bpro-t2i``; app inputs are numeric IDs or links.
+    An endpoint is a slash-separated identifier like ``bizyair/image-tools/background-remover``.
+    URLs (``://``) and paths starting with ``/`` are not endpoint IDs.
+    """
+    text = str(value or '').strip()
+    if not text or '://' in text or text.startswith('/') or text.endswith('/'):
+        return False
+    if 'bizyair.ai/' in text or text.startswith(('www.', 'community/', 'models/', 'app/')):
+        return False
+    return '/' in text
 
 def is_video_model(model: str | None) -> bool:
     if model in ROUTE_TABLE:
         return ROUTE_TABLE[model]['modality'] == 'video'
     return False
 
+# Emoji is bound to the slug; display_model_name always carries an emoji.
+MODEL_EMOJI = {'bpro-t2i': '📷', 'fkmax-t2i': '🖼️', 'seedream5-t2i': '🌈', 'o2-t2i': '🎨', 'b2-t2i': '⚡', 'v31pro-t2v': '🎬', 'happyhorse-t2v': '🐎', 'kling30-t2v': '🐉', 'wan27-t2v': '🌊', 'seedance2-t2v': '💃'}
+
+
+def model_bare_name(model: str | None) -> str:
+    """Model display name without the emoji, for inline use in body text (menu recommendations)."""
+    slug = model or ''
+    return MODEL_DISPLAY_NAMES.get(slug) or slug or 'this model'
+
+
 def display_model_name(model: str | None) -> str:
-    names = {'bpro-t2i': '📷 通用图片B.Pro', 'fkmax-t2i': '🖼️ 通用图片F.K.Max', 'seedream5-t2i': '🌈 Seedream 5.0', 'o2-t2i': '🎨 通用图片O.2', 'b2-t2i': '⚡ 通用图片B.2', 'v31pro-t2v': '🎬 通用视频V.3.1.Pro', 'happyhorse-t2v': '🐎 HappyHorse', 'kling30-t2v': '🐉 可灵3.0.Pro', 'wan27-t2v': '🌊 万相2.7', 'seedance2-t2v': '💃 Seedance 2.0'}
-    return names.get(model or '', model or '这个模型')
+    slug = model or ''
+    bare = model_bare_name(slug)
+    emoji = MODEL_EMOJI.get(slug)
+    return f'{emoji} {bare}' if emoji else bare
 
 def build_run_dispatch_message(model: str | None) -> str:
     name = display_model_name(model)
     if is_video_model(model):
-        return f'好嘞，已经让 {name} 开始跑啦。视频任务要稍微多等一会儿，我帮你守着进度！'
-    return f'好嘞，已经提交给 {name} 啦。我在这帮你盯着进度，图一出来立马发给你！'
+        return f'All set — {name} is running now. Video tasks take a little longer, so I will keep an eye on the progress for you!'
+    return f'All set — submitted to {name}. I am watching the progress here and will send the image to you the moment it is ready!'
 
 def runtime_state_enabled() -> bool:
     return os.environ.get(RUNTIME_STATE_DISABLED_ENV, '').strip().lower() not in {'1', 'true', 'yes', 'on'}
@@ -350,40 +534,40 @@ def classify_error_bucket(payload: dict) -> str:
 def friendly_error_message(payload: dict) -> str | None:
     bucket = classify_error_bucket(payload)
     if bucket == 'missing_api_key':
-        return '还没连上 BizyAir API Key，任务跑不起来。先把 Key 配好，配完接着跑～'
+        return 'The BizyAir API key is not connected yet, so the task cannot run. Set up the key first, then we continue.'
     if bucket == 'local_app_catalog_removed':
-        return '本地 catalog 的老通道已经关了。固定的图片和视频入口还能直接用，其他的走在线搜索或直接看详情～'
+        return 'The legacy local catalog channel has been shut down. The fixed image and video entries still work directly; for everything else use online search or open the detail page.'
     if bucket == 'remote_app_run_not_supported':
         reason = str(payload.get('reason') or '')
         feedback_channel = str(payload.get('feedback_channel') or '')
         if reason == 'workflow_without_ref_app':
-            return '这是一个纯 ComfyUI 工作流，没有对应的 AI 应用版本，目前不支持直接运行～你可以在 BizyAir 网页端打开它，手动加载到 ComfyUI 编辑器里跑。'
-        return '信息和参数都整理出来了。不过后台还没完全打通这条线，这轮先不直接跑～'
+            return 'This is a pure ComfyUI workflow with no matching AI app version, so running it directly is not supported yet. You can open it on the BizyAir website and load it into the ComfyUI editor to run it manually.'
+        return 'The information and parameters are ready. However, the backend has not fully opened this path yet, so we will not run it directly this round.'
     if bucket == 'missing_user_media':
         missing_inputs = payload.get('missing_inputs') or {}
         parts = []
         if missing_inputs.get('image'):
-            parts.append('图片')
+            parts.append('image')
         if missing_inputs.get('audio'):
-            parts.append('音频')
+            parts.append('audio')
         if missing_inputs.get('video'):
-            parts.append('视频')
-        joined = '、'.join(parts) if parts else '素材'
-        return f'这次缺了你自己的素材。这个任务必须用你自己的素材来跑，站内示例不能直接套用。这轮缺的是：{joined}。'
+            parts.append('video')
+        joined = ', '.join(parts) if parts else 'media'
+        return f'This round is missing your own media. This task must run with your own media; the built-in examples cannot be reused directly. Missing this round: {joined}.'
     if bucket == 'missing_file':
-        return '还没收到你要用的文件。可能是路径没填对，或者还没传完。重新发一下，接着跑～'
+        return 'The file you want to use has not arrived yet. The path may be wrong, or the upload may not have finished. Send it again and we continue.'
     if bucket == 'bad_upload_input':
-        return '卡在上传素材这步了，可能是文件格式或大小不符合要求。换个常见格式，或者把文件弄小一点再试～'
+        return 'It got stuck on the media upload step; the file format or size may not meet the requirements. Try a common format, or make the file smaller and try again.'
     if bucket == 'upload_or_station':
-        return '上传环节卡住了，BizyAir 那边通道暂时有点波动。素材应该没问题，稍后再试一下～'
+        return 'The upload step is stuck; the BizyAir channel is fluctuating right now. Your media should be fine, so try again in a moment.'
     if bucket == 'station_timeout':
-        return '这次是 BizyAir 那边处理太慢导致超时了。不是你的操作问题，等会儿再重试一次～'
+        return 'BizyAir took too long to process this time, so the request timed out. This is not your mistake; retry once in a little while.'
     if bucket == 'station_runtime':
-        return '这次是 BizyAir 那边没跑通，可能是服务器太忙或有点波动。不是你参数填错了～'
+        return 'BizyAir did not complete this time; the server may be busy or fluctuating. Your parameters were not the problem.'
     if bucket == 'bad_input_runtime':
-        return '这次是素材或参数有点不匹配。可能是提示词、格式或尺寸哪里没对上，帮你找一下问题在哪～'
+        return 'The media or parameters do not quite match this time. The prompt, format or size may be off; let me help you find where.'
     if bucket == 'app_not_found':
-        return '没找到对应的模型或应用。可能是编号、名字或 ID 没对齐。把你选的对象再发一次，帮你核对～'
+        return 'No matching model or app was found. The number, name or ID may not line up. Send the object you picked again and I will check it.'
     return None
 
 def format_success_payload(payload: dict) -> str | None:
@@ -403,9 +587,19 @@ def ensure_api_key_ready(api_key_arg: str | None) -> None:
             payload = json.loads(raw_stdout)
         except Exception:
             payload = None
-    if isinstance(payload, dict) and payload.get('status') == 'no_key':
-        print(friendly_error_message({'error': 'NO_API_KEY'}))
+    if isinstance(payload, dict):
+        status = payload.get('status')
+        if status == 'ok':
+            return
+        if status == 'no_key':
+            print(friendly_error_message({'error': 'NO_API_KEY'}))
+            sys.exit(1)
+        message = payload.get('message') or f'API key status is abnormal: {status or "unknown"}'
+        print(json.dumps({'error': 'API_KEY_NOT_READY', 'status': status, 'message': message}, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
+    # The check itself exited abnormally or its output cannot be parsed: treat it as not ready, never continue with a business command.
+    print((result.stderr or result.stdout or 'API key check failed').strip(), file=sys.stderr)
+    sys.exit(1)
 
 def run_subprocess(args: list[str], *, success_callback: Callable[[], None] | None=None):
     result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace')
