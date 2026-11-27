@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-label="BizyAir AI Skill — Make it. Just ask.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090D1A"/>
+      <stop offset="0.55" stop-color="#0E1730"/>
+      <stop offset="1" stop-color="#0A2430"/>
+    </linearGradient>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFD7A8"/>
+      <stop offset="0.55" stop-color="#FF9B7A"/>
+      <stop offset="1" stop-color="#FF6FA5"/>
+    </linearGradient>
+    <linearGradient id="cardImage" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB86B"/>
+      <stop offset="0.55" stop-color="#FF6F91"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="cardVideo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C5CFF"/>
+      <stop offset="0.55" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="cardAudio" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.55" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#A3E635"/>
+    </linearGradient>
+    <radialGradient id="glowPink" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF6FA5" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FF6FA5" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBlue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3B82F6" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="30"/>
+    </filter>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#FFFFFF" stroke-opacity="0.035"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="460" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="460" rx="28" fill="url(#grid)"/>
+  <circle cx="1080" cy="40" r="240" fill="url(#glowPink)"/>
+  <circle cx="760" cy="430" r="260" fill="url(#glowBlue)"/>
+  <circle cx="120" cy="420" r="180" fill="#7C5CFF" opacity="0.10" filter="url(#blur)"/>
+
+  <text x="64" y="72" fill="#93A4C4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" letter-spacing="3.2">BIZYAIR · AGENT SKILL</text>
+
+  <text x="64" y="168" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="66" font-weight="750" letter-spacing="-1.6">Make it.</text>
+  <text x="64" y="238" fill="url(#warm)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="66" font-weight="750" letter-spacing="-1.6">Just ask.</text>
+
+  <text x="64" y="288" fill="#DCE4F5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="500">Images, videos, and voiceovers — from one sentence.</text>
+  <text x="64" y="318" fill="#8EA0C2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16">Your agent picks the model, shows the price,</text>
+  <text x="64" y="340" fill="#8EA0C2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16">and brings the finished file back.</text>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">
+    <rect x="64" y="372" width="86" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <text x="107" y="391" text-anchor="middle" fill="#C9D4E8">IMAGE</text>
+    <rect x="160" y="372" width="86" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <text x="203" y="391" text-anchor="middle" fill="#C9D4E8">VIDEO</text>
+    <rect x="256" y="372" width="86" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <text x="299" y="391" text-anchor="middle" fill="#C9D4E8">VOICE</text>
+    <rect x="352" y="372" width="86" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.07" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <text x="395" y="391" text-anchor="middle" fill="#C9D4E8">EDIT</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(760 48) rotate(-10 165 105)">
+      <rect width="330" height="210" rx="26" fill="url(#cardImage)"/>
+      <circle cx="66" cy="66" r="34" fill="#FFFFFF" fill-opacity="0.18"/>
+      <circle cx="250" cy="148" r="62" fill="#FFFFFF" fill-opacity="0.10"/>
+      <text x="24" y="34" fill="#FFFFFF" fill-opacity="0.9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="2">IMAGE</text>
+    </g>
+
+    <g transform="translate(822 128) rotate(6 165 105)">
+      <rect width="330" height="210" rx="26" fill="url(#cardVideo)"/>
+      <path d="M150 82 L196 108 L150 134 Z" fill="#FFFFFF" fill-opacity="0.88"/>
+      <circle cx="66" cy="150" r="38" fill="#FFFFFF" fill-opacity="0.10"/>
+      <text x="24" y="34" fill="#FFFFFF" fill-opacity="0.9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="2">VIDEO</text>
+    </g>
+
+    <g transform="translate(776 206) rotate(-3 165 105)">
+      <rect width="330" height="210" rx="26" fill="url(#cardAudio)"/>
+      <g fill="#FFFFFF" fill-opacity="0.78">
+        <rect x="116" y="82" width="10" height="36" rx="5"/>
+        <rect x="136" y="68" width="10" height="64" rx="5"/>
+        <rect x="156" y="54" width="10" height="92" rx="5"/>
+        <rect x="176" y="74" width="10" height="52" rx="5"/>
+        <rect x="196" y="88" width="10" height="24" rx="5"/>
+      </g>
+      <text x="24" y="34" fill="#FFFFFF" fill-opacity="0.9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="2">VOICE</text>
+    </g>
+  </g>
+
+  <g fill="#FFFFFF">
+    <path d="M716 72 L722 88 L738 94 L722 100 L716 116 L710 100 L694 94 L710 88 Z" opacity="0.9"/>
+    <circle cx="1112" cy="322" r="3" opacity="0.7"/>
+    <circle cx="1142" cy="294" r="2" opacity="0.45"/>
+  </g>
+
+  <text x="1136" y="432" text-anchor="end" fill="#FFFFFF" fill-opacity="0.32" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" letter-spacing="1.4">BIZYAIR.AI</text>
+</svg>

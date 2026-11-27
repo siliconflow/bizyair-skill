@@ -1,28 +1,65 @@
-# 03 AI 应用任务
+# 03 AI app tasks
 
-用于 AI 应用的参数整理、任务创建、状态查询、结果获取。
+For parameter preparation, task creation, status queries and result retrieval for AI apps.
 
-## 标准流程
+## Paid confirmation and reruns (v1.12.6)
 
-1. `GET /x/v1/webapp/:bizy_model_id` → 拿 `data.id`（= web_app_id）+ `data.input_nodes`
-2. 从 `input_nodes` 构建 `input_values`（variable_name → 值）
-3. `POST /w/v1/webapp/task/openapi/create` 创建任务
-4. 轮询 `GET /w/v1/webapp/task/openapi/detail?requestId=...`
-5. 成功后 `GET /w/v1/webapp/task/openapi/outputs?requestId=...` 拿结果
+- **One confirmation submits once**: when the user says "start", it authorizes only the current parameters and this one run, not "run until satisfied".
+- **Do not rerun automatically on dissatisfaction**: show the output and the problem first; only after the user explicitly says "rerun / run again / change parameters" may you submit again, and reconfirm the cost.
+- **Check first when the submit result is unknown**: if no request_id was obtained, check `credits` for a charge (and `batch-status` for a batch); `status` needs a task ID, so ask the user for it or use the BizyAir task page. Never rerun directly. `run` has automatic submit retries disabled (`WEBAPP_RETRY_LIMIT=0`).
 
-## 关键规则
+## Standard flow
 
-### web_app_id 来源
+1. `GET https://meta.bizyair.ai/v1/webapp/:webapp_id/detail` → get `data.id` (= web_app_id) + `data.input_nodes`
+2. Build `input_values` from `input_nodes` (variable_name → value)
+3. `POST https://api.bizyair.ai/v1/webapp/task/openapi/create` to create the task
+4. Poll `GET https://api.bizyair.ai/v1/webapp/task/openapi/{request_id}` (**path-segment style**, not `?requestId=`)
+5. On success, `GET https://api.bizyair.ai/v1/webapp/task/openapi/{request_id}/outputs` to get the results
+6. When downloading result URLs you must send a `User-Agent` (`storage.bizyair.ai` is behind Cloudflare; bare urllib gets 403)
 
-- 路径上的是 `bizy_model_id`（如 46086）
-- 返回的 `data.id` 才是 `web_app_id`（如 47362）
-- create 时必须用 `data.id`，不是路径上的 ID
+## Key rules
+
+### web_app_id source
+
+- `/v1/webapp/{id}/detail` expects the `web_app_id` / version ID (e.g. 47362 or 57978), **not** the model asset `bizy_model_id`.
+- The returned `data.id` is the `web_app_id`; create must use `data.id`.
+- If you only have the asset ID, first resolve `versions[0].id` from the community/official list, then call the webapp endpoint with that version ID.
+
+### Two ID namespaces (fixed in v1.10.1)
+
+| ID | Example | Where it works |
+|---|---|---|
+| `bizy_model_id` | 56818 | Community list object ID; `/v1/webapp/{id}/detail` **does not recognize it** |
+| `web_app_id` / `version_id` | 57978 | `/v1/webapp/{id}/detail`, `/v1/bizy_models/versions/{id}`, web `/community/app/{id}` |
+
+- Querying webapp detail with `bizy_model_id` returns data without `id`, so the old logic judged `missing_webapp_mapping`
+- Now `resolve_remote_execution_target` retries automatically with the already-resolved version ID, and `preflight` also
+  recovers `versions[0].id` from the community/official list when `/v1/bizy_models/{id}/detail` returns 400 (code 20015)
+- When a web URL is available, prefer the version ID in the URL; it saves one list lookup (about 7 seconds saved)
+
+### Numeric ID collisions (v1.12.2)
+
+The same number can be both an app version ID and a model hub asset ID. Measured on `56747`:
+
+- `/v1/webapp/56747/detail` → app "Replace White Background - QWen Image Edit 2511"
+- `/v1/bizy_models/56747/detail` → LoRA `minimax_h3_flf2v_lora_v1.safetensors`
+- Both endpoints return 200; the old logic took model detail first, so `info` resolved the app as a LoRA.
+
+Now `info` / `prefill` / `run` prefer resolving numeric IDs as webapp app versions; to look up the model hub object use
+`cli.py model-detail 56747`. `pick-image`'s `id` shares its source with `page_url` (the version ID for apps); the
+model hub asset ID is in `bizy_model_id` / `asset_id`; run/prefill use `id` or `page_url`.
+
+### Single source of truth for IDs (v1.12.3)
+
+- The app main ID on the `prefill` card is the execution version ID; when the input is an asset ID it is marked separately as "input ID".
+- `info`'s top-level `page_object_id` / `execution_object_id` are both the app version ID, while `resolved_object_id` keeps the input ID for traceability.
+- `download-workflow` likewise prefers resolving as a webapp app; the exported `page_url` uses the version ID.
 
 ### input_nodes → input_values
 
-`input_nodes` 是有序 list，每项含 `variable_name`（如 `93:CLIPTextEncode.text`）。
+`input_nodes` is an ordered list, each item containing `variable_name` (e.g. `93:CLIPTextEncode.text`).
 
-create 时 `input_values` 是 `{variable_name: 值}` 的 dict：
+At create time `input_values` is a dict of `{variable_name: value}`:
 ```json
 {
   "web_app_id": 47362,
@@ -33,123 +70,134 @@ create 时 `input_values` 是 `{variable_name: 值}` 的 dict：
 }
 ```
 
-- 不需要全填：服务端会用 webapp 的 default 兜底未传字段
-- 但 `input_values` 不能是空 dict `{}`（会报 40025）
-- 至少传 1 个 key（通常是 prompt）
+- You do not need to fill everything: the server falls back to the webapp's default for fields not passed
+- But `input_values` cannot be an empty dict `{}` (it reports 40025)
+- Pass at least 1 key (usually prompt)
 
-### 异步模式（默认）
+### Async mode (default)
 
-加 `X-Bizyair-Task-Async: enable` header：
-- HTTP **202**，345ms 立即返回 `{"request_id": "..."}`（裸 body，无 code/message 包装）
-- 之后轮询 detail → outputs
+With the `X-Bizyair-Task-Async: enable` header:
+- HTTP **202**, returns `{"request_id": "..."}` immediately in 345ms (bare body, no code/message wrapper)
+- Then poll detail → outputs
 
-不加 header（同步模式）：
-- HTTP 200，阻塞 30-120s 直接返回完整结果（含 outputs）
-- 仅作为调试 fallback
+Without the header (sync mode):
+- HTTP 200, blocks for 30-120s and returns the complete result directly (including outputs)
+- Only as a debugging fallback
 
 ### suppress_preview_output
 
-- 不传或传 `false`：outputs 正常返回
-- 传 `true`：outputs 端点返回 null（**不要传 true**）
+- Not passed or `false`: outputs are returned normally
+- `true`: the outputs endpoint returns null (**do not pass true**)
 
-## 参数卡规则
+## Parameter card rules
 
-### 排序
+### Ordering
 
-1. 提示词 / 素材
-2. 模型档位（仅多选时展示）
-3. 比例 / 尺寸 / 分辨率
-4. 时长（视频）
-5. 随机性 / seed
-6. 其他
+1. Prompt / materials
+2. Model tier (shown only when there are multiple choices)
+3. Aspect ratio / size / resolution
+4. Duration (video)
+5. Randomness / seed
+6. Other
 
-### 默认不等于执行
+### Default is not execution
 
-"默认" / "你定" / "按推荐" → 仅授权预填参数卡，**不等于授权执行**。
-"开跑" / "直接跑" / "确认执行" → 才放行真实执行。
+"default" / "you decide" / "go with the recommendation" → only authorizes prefilling the parameter card, **not execution**.
+"start" / "just run" / "confirm execution" → only then is real execution allowed.
 
-### 枚举字段
+### Enum fields
 
-底层固定枚举参数必须列全可选范围，不能用开放式提问。
+Fixed underlying enum parameters must list the full range of options; do not use open-ended questions.
 
-## Prompt 优化
+## Prompt optimization
 
-> 以下规则是给 agent 的行为指导，脚本层（build_prompt_bundle_for_args）当前为 passthrough 模式，不做自动扩写。
+> The following rules are behavioral guidance for the agent; the script layer (build_prompt_bundle_for_args) is currently in passthrough mode and does not expand automatically.
 
-Agent 收到用户的简短描述后，应扩写为模型友好的 prompt。用户已给详细描述的不要画蛇添足。
+After receiving a short description from the user, the agent should expand it into a model-friendly prompt. Do not over-engineer descriptions the user already gave in detail.
 
-### 何时扩写
+### When to expand
 
-- 输入 < 15 字且无具体视觉描述 → 扩写
-- 已有详细画面描述 → 原样使用，最多微调格式
-- 用户明确说"就这样" / "不要改" → 严格原样
+- Input < 15 characters with no concrete visual description → expand
+- Already a detailed scene description → use as-is, at most minor format tweaks
+- The user explicitly says "leave it as is" / "don't change it" → strictly as-is
 
-### 扩写维度
+### Expansion dimensions
 
-从用户核心意图出发，按需补充（不必全补）：
+Starting from the user's core intent, add as needed (not all are required):
 
-1. **主体**：是什么、在做什么、数量、姿态
-2. **环境**：场景、背景、光线、天气、时间
-3. **风格**：写实 / 插画 / 3D / 赛博朋克 / 水彩 等
-4. **构图**：特写 / 全身 / 俯视 / 侧面 等
-5. **画质**：高清、细节丰富（酌情，不堆砌）
+1. **Subject**: what it is, what it is doing, count, pose
+2. **Environment**: scene, background, lighting, weather, time
+3. **Style**: realistic / illustration / 3D / cyberpunk / watercolor, etc.
+4. **Composition**: close-up / full body / top-down / side view, etc.
+5. **Image quality**: HD, rich detail (as appropriate, do not pile up)
 
-### 语言选择
+### Language selection
 
-| 模型类型 | 推荐语言 | 说明 |
+| Model type | Recommended language | Notes |
 |---|---|---|
-| Flux 系（Nano Banana、Klein） | 英文 | 英文 prompt 效果更稳定 |
-| 国产模型（即梦、Qwen） | 中文 | 中文理解好，无需翻译 |
-| GPT 系（ChatGPT Image） | 英文 | 擅长复杂英文指令 |
-| 视频模型 | 跟用户原文 | 主流视频模型中英文都行 |
+| Flux family (Nano Banana, Klein) | English | English prompts are more stable |
+| Chinese models (Jimeng, Qwen) | Chinese | Good Chinese understanding, no translation needed |
+| GPT family (ChatGPT Image) | English | Good at complex English instructions |
+| Video models | Follow the user's original | Both Chinese and English work for mainstream video models |
 
-英文模型场景：Agent 把用户中文写成自然的英文画面描述，不是机翻。
+For English-model scenarios: the agent writes the user's Chinese into a natural English scene description, not a machine translation.
 
-### 视频额外维度
+### Extra dimensions for video
 
-- **运动**：主体做什么动作、怎么移动
-- **镜头**：推 / 拉 / 平移 / 跟随 / 固定
-- **节奏**：快 / 慢 / 渐变
+- **Motion**: what action the subject performs, how it moves
+- **Camera**: push in / pull out / pan / follow / static
+- **Pace**: fast / slow / gradual
 
-### 不要做
+### Do not
 
-- 堆砌质量词（`masterpiece, best quality, 8k, award winning` 连排）→ 稀释主题
-- 矛盾风格（`realistic photo, anime style`）→ 选一个
-- 替换用户意图（用户说"简单的猫"，改成"赛博朋克机械猫"）→ 扩写是补细节，不是换主题
+- Pile up quality words (`masterpiece, best quality, 8k, award winning` in a row) → dilutes the subject
+- Contradictory styles (`realistic photo, anime style`) → pick one
+- Replace the user's intent (user says "a simple cat", changed to "cyberpunk mechanical cat") → expansion adds detail, it does not change the theme
 
-## 执行与状态
+## Execution and status
 
-### 状态枚举
+### Status enum
 
-| status | 含义 |
+| status | Meaning |
 |---|---|
-| Queuing | 排队中 |
-| Preparing | 准备中 |
-| Running | 执行中 |
-| Success | 成功 |
-| Failed | 失败（看 data.message） |
+| Queuing | In queue |
+| Preparing | Preparing |
+| Running | Running |
+| Success | Success |
+| Failed | Failure (see data.message) |
 
-### 输出交付
+### Output delivery
 
-- 图片：`![生成结果](url)` 原样转发
-- 视频：裸 URL 单独一行（不要包成 markdown 链接）
-- 一次任务可能多输出（工作流含多个保存节点）
-- 过程图（如 rgthree.compare 的 _temp_ 缩略图）不展示给用户
-- 输出有 `expired_at`（~15 天后过期），建议及时下载
+- Images: forward as-is with `![generated result](url)`
+- Video: bare URL on its own line (do not wrap it as a markdown link)
+- One task may have multiple outputs (workflows with multiple save nodes)
+- Intermediate images (e.g. rgthree.compare's _temp_ thumbnails) are not shown to the user
+- Outputs have `expired_at` (~15 days until expiry); download them promptly
 
-### 失败分类
+### Failure classification
 
-1. 提交阶段（鉴权/参数/映射）
-2. 平台执行（超时/服务忙/上游失败）
-3. 材料与参数（格式/尺寸/缺项）
-4. 结果回收（下载失败/地址不可达）
+1. Submit stage (auth/parameters/mapping)
+2. Platform execution (timeout/service busy/upstream failure)
+3. Materials and parameters (format/size/missing items)
+4. Result retrieval (download failure/address unreachable)
 
-### 底层字段静默
+### Keeping underlying fields quiet
 
-REQUEST_ID / TASK_ID / STATUS / 原始 JSON 不主动展示给用户，除非用户明确要排障。
+REQUEST_ID / TASK_ID / STATUS / raw JSON are not proactively shown to the user unless the user explicitly wants troubleshooting.
 
-## 执行权限
+## Resume checks (v1.11)
 
-- 普通 app → 可直接执行
-- 带关联 app 的 workflow → 可继续执行
-- 没有关联 app 的 workflow → 只看不跑（需先 fork 成 Application）
+```bash
+python3 scripts/cli.py status <request_id>                        # check once
+python3 scripts/cli.py outputs <request_id> [-o output-dir] [--reply-format markdown]
+```
+
+- `status` does not poll: suitable when the task has been running for a long time, the session was interrupted, or the user separately asks "is that task done?".
+- `outputs` only fetches outputs; with `-o` it downloads to a local directory.
+- Both commands are read-only: no cost, no task created; `request_id` comes from the output of `run` or from the user.
+
+## Execution permission
+
+- Plain app → can be executed directly
+- Workflow with a linked app → can be executed as-is
+- Workflow without a linked app → look only, do not run (must be forked into an Application first)

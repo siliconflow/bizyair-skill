@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-label="Many image and video models on BizyAir.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090D1A"/>
+      <stop offset="1" stop-color="#0C1B2C"/>
+    </linearGradient>
+    <linearGradient id="a1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFB86B"/><stop offset="1" stop-color="#FF6FA5"/>
+    </linearGradient>
+    <linearGradient id="a2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7C5CFF"/><stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="a3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#34D399"/>
+    </linearGradient>
+    <linearGradient id="a4" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F472B6"/><stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+    <linearGradient id="a5" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FB7185"/><stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+    <linearGradient id="a6" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A3E635"/><stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="400" rx="24" fill="url(#bg)"/>
+  <text x="64" y="52" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="700">Many models, one skill</text>
+  <text x="64" y="78" fill="#8EA0C2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14">Image and video models on BizyAir — plus many more endpoints, apps, and workflows.</text>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(64 102)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a1)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">Seedream 5.0 Flash</text>
+      <text x="22" y="82" fill="#FFB86B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">IMAGE</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a1)" opacity="0.16"/>
+    </g>
+
+    <g transform="translate(436 102)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a2)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">FLUX 3</text>
+      <text x="22" y="82" fill="#8FA6FF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">IMAGE / VIDEO</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a2)" opacity="0.16"/>
+    </g>
+
+    <g transform="translate(808 102)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a3)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">Nano Banana 2.1</text>
+      <text x="22" y="82" fill="#5EEAD4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">IMAGE</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a3)" opacity="0.16"/>
+    </g>
+
+    <g transform="translate(64 240)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a4)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">GPT Image 2.5 Sunburst</text>
+      <text x="22" y="82" fill="#F9A8D4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">IMAGE</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a4)" opacity="0.16"/>
+    </g>
+
+    <g transform="translate(436 240)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a5)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">Kling 3.0 Pro</text>
+      <text x="22" y="82" fill="#FDA4AF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">VIDEO</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a5)" opacity="0.16"/>
+    </g>
+
+    <g transform="translate(808 240)">
+      <rect width="328" height="120" rx="16" fill="#131C33" stroke="#FFFFFF" stroke-opacity="0.08"/>
+      <rect width="4" height="120" rx="2" fill="url(#a6)"/>
+      <text x="22" y="50" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="650">Wan 2.7</text>
+      <text x="22" y="82" fill="#D9F99D" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4">VIDEO</text>
+      <circle cx="288" cy="60" r="26" fill="url(#a6)" opacity="0.16"/>
+    </g>
+  </g>
+
+  <text x="64" y="392" fill="#7E90B0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11">Plus more models, AI apps, and workflows.</text>
+  <text x="1136" y="392" text-anchor="end" fill="#FFFFFF" fill-opacity="0.28" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" letter-spacing="1.2">BIZYAIR.AI</text>
+</svg>

@@ -1,80 +1,138 @@
-# 05 公共约定
+# 05 Common conventions
 
-## 环境变量
+## Environment variables
+
+BizyAir splits its API across three hosts, and there are **no `/w` `/x` `/y` prefixes**:
 
 ```bash
-export API_BASE="https://api.bizyair.cn"
-export X_BASE="${API_BASE}/x/v1"
-export Y_BASE="${API_BASE}/y/v1"
-export W_BASE="${API_BASE}/w/v1"
+export API_BASE="https://api.bizyair.ai"          # tasks / upload / wallet / modelzoo tasks
+export META_BASE="https://meta.bizyair.ai"        # AI app details / model hub / modelzoo list·detail
+export PRICING_BASE="https://pricing.bizyair.ai"  # price table
 export TOKEN="<api-key>"
 ```
 
-鉴权头：`Authorization: Bearer ${TOKEN}` + `lang: zh`
+Auth headers: `Authorization: Bearer ${TOKEN}` + `lang: en` + `User-Agent: Mozilla/5.0` (required by Cloudflare)
 
-## 分页
+### Language and host overrides (v1.11)
 
-- `current`：页码，从 1 开始
-- `page_size`：每页数量（建议 10/20/50）
-- 返回：`{list, total, current, page_size}`（注意是 `list` 不是 `records`）
+`lang` defaults to **en** (BizyAir); to temporarily switch to Chinese or another language, use the environment variable `BIZYAIR_LANG=zh`, or write this in `config.json`:
 
-## 响应判断
-
-```
-HTTP 200 + code=20000 → 请求成功（但任务可能 Failed，看 data.status）
-HTTP 202             → 异步模式 webapp create 成功（裸 body {request_id}）
-HTTP 400 + code=20015 → 参数无效
-HTTP 400 + code=40025 → webapp 缺 input_values
-HTTP 500 + 空 body    → 参数类型错误（服务端未给 message）
+```json
+{"client": {"lang": "zh"}}
 ```
 
-## 常用枚举
+The hosts default to `api.bizyair.ai` / `meta.bizyair.ai` / `pricing.bizyair.ai`, and can be rewritten as a whole (staging, self-hosted proxy):
 
-- `model_types`：Model / Workflow / Application
-- `sort`（bizy_models）：Recently / Most Forked / Most Used / Most Liked / Most Downloaded / Auto（**必填**）
-- `sort`（modelzoo/list）：Auto / Recently / Most Used 等（**可选**）
-- `sort`（creations）：Recently / Recommend / Hotest
-- `call_type`：comfy_task / trd_api_record
+```bash
+export BIZYAIR_API_HOST="https://api-staging.example.com"
+export BIZYAIR_META_HOST="https://meta-staging.example.com"
+export BIZYAIR_PRICING_HOST="https://pricing-staging.example.com"
+```
 
-## 错误码（可重试 vs 不可重试）
+They can also be set in `client.api_host` / `client.meta_host` / `client.pricing_host`. The override only changes the request URL; command usage is unchanged.
 
-### 可重试（换 Key 或稍后重试可能恢复）
+### ModelZoo task paths
 
-| 码 | 含义 | 建议 |
+Create/query must use the `openapi` path: `/v1/modelzoo/tasks/openapi/{endpoint}`, `/v1/modelzoo/tasks/openapi/{request_id}`.
+Non-openapi paths reject base64 data URLs (`value must be an absolute URL`).
+
+### Local path variables
+
+The skill install directory is read-only; runtime state and outputs are not written there by default.
+
+| Variable | Purpose | Default |
 |---|---|---|
-| 20049/20050/20051 | 余额不足 | 换有余额的 key |
-| 30039 | 达到最大排队数量 | 稍后重试 |
-| 30040 | 达到最大并行度 | 等当前任务完成 |
-| 30015/30016/30018 | 无可用节点 | 该模型暂时不可用 |
-| 50600-50604 | 限流 | 请求太频繁，稍后重试 |
-| HTTP 429 | 网关限流 | 同上 |
-| HTTP 402 | 付费问题 | 同余额不足 |
+| `BIZYAIR_STATE_DIR` | Runtime state / batch state root (highest priority) | macOS `~/Library/Application Support/bizyair`; Linux `$XDG_STATE_HOME/bizyair` or `~/.local/state/bizyair` |
+| `BIZYAIR_HOME` | Serves as both the runtime state root and the output root | Uses the system state directory when unset |
+| `BIZYAIR_OUTPUT_DIR` | Single-task output root | Current workspace `bizyair-outputs/`; falls back to the state directory when run from inside the skill directory |
 
-### 不可重试（客户端问题）
+When `BIZYAIR_HOME` is set, outputs go to `$BIZYAIR_HOME/outputs` by default.
 
-| 码 | 含义 |
+## Resume commands (v1.11)
+
+| Command | Purpose |
 |---|---|
-| 20015 | 参数无效 |
-| 20251 | 第三方 API 节点未找到 |
-| 40025 | 缺少 input_values |
+| `cli.py status <request_id>` | Check webapp task status once (no polling, no billing) |
+| `cli.py outputs <request_id> [-o dir]` | Fetch webapp task outputs; downloads when `-o` is given |
+| `cli.py upload <local file>` | Upload any local file → OSS URL (for assembling your own payload) |
+| `cli.py modelzoo-md [--save]` | Export the full ModelZoo catalog (235 entries as currently measured; the count varies with the platform) |
+| `cli.py app-md [--save]` | Export the full community AI app catalog (215 entries as currently measured; the count varies with the platform) |
 
-## 何时需要鉴权
+## Pagination
 
-通常可匿名：社区公开资源检索、公开详情、modelzoo 公共列表/详情/价格
+- `current`: page number, starting at 1
+- `page_size`: items per page (10/20/50 recommended)
+- Returns: `{list, total, current, page_size}` (note it is `list`, not `records`)
 
-通常需要鉴权：我的资源、用户资料、钱包、API Key、AI 应用任务、modelzoo 任务、调用记录
+## Interpreting responses
 
-## 输出 URL 注意事项
+```
+HTTP 200 + code=20000 → request succeeded (but the task may be Failed; check data.status)
+HTTP 202             → async-mode webapp create succeeded (bare body {request_id})
+HTTP 400 + code=20015 → invalid parameter
+HTTP 400 + code=40025 → webapp is missing input_values
+HTTP 500 + empty body → parameter type error (the server gave no message)
+```
 
-- 大部分落 BizyAir 自家 OSS（`bizyair-prod.oss-cn-shanghai.aliyuncs.com` / `storage.bizyair.cn`）
-- 部分渠道版落第三方临时存储（`tempfile.aiquickdraw.com` / `s3.6scloud.com`）
-- AI 应用任务有 `expired_at`（~15 天后过期）
-- **必须及时下载落地，不依赖原 URL 永久可访问**
+## CLI exit codes
 
-## API Key 展示
+| Exit code | Meaning | Typical case |
+|---|---|---|
+| 0 | Success | Task completed, query succeeded |
+| 1 | Dependency / network / server failure | `REMOTE_REQUEST_FAILED`, task `Failed`, key check failed |
+| 2 | Invalid input or parameter | Unknown `--param`, invalid combo, missing required prompt, invalid link / ID, missing subcommand argument |
+| 3 | Parameter card produced but not confirmed | `modelzoo-run` / `batch-run` without `--confirm-run` |
 
-响应里 key 都是脱敏的：`sk-wmul****...phzh`。skill 展示自己 key 时保持同样格式。
+Agents must not treat exit codes 2 / 3 as network faults that need a retry.
+
+## Common enums
+
+- `model_types`: Model / Workflow / Application
+- `sort` (bizy_models): the platform accepts Recently / Most Forked / Most Used / Most Liked / Most Downloaded / Auto (**required**). `cli.py models` currently accepts only **Most Used / Recently / Auto**; other values are rejected locally with exit 2.
+- `sort` (modelzoo/list): Auto / Recently / Most Used etc. (**optional**)
+- `sort` (creations): the platform accepts Recently / Recommend / Hotest. `cli.py gallery` currently accepts only **Recently / Recommend**; other values are rejected locally with exit 2.
+- `call_type`: comfy_task / trd_api_record
+
+## Error codes (retryable vs non-retryable)
+
+### Retryable (may recover with another key manually, or a later retry)
+
+| Code | Meaning | Suggestion |
+|---|---|---|
+| 20049/20050/20051 | Insufficient balance | Switch to a key that has balance |
+| 30039 | Maximum queue size reached | Retry later |
+| 30040 | Maximum concurrency reached | Wait for the current tasks to finish |
+| 30015/30016/30018 | No available nodes | That model is temporarily unavailable |
+| 50600-50604 | Rate limited | Too many requests; retry later |
+| HTTP 429 | Gateway rate limit | Same as above |
+| HTTP 402 | Billing problem | Same as insufficient balance |
+
+### Non-retryable (client-side problem)
+
+| Code | Meaning |
+|---|---|
+| 20015 | Invalid parameter |
+| 20251 | Third-party API node not found |
+| 40025 | Missing input_values |
+
+## When authentication is needed
+
+- **No key:** menus, `browse`, `models`, `model-types`, `search`, `search-workflows`, `pick-image` / `pick-video`, `batch-status`.
+- **Key required:** task runs (`run`, `prefill`, `modelzoo-run`, batch), account reads/writes, `upload`, `status` / `outputs`, `download-workflow`.
+- **Public but skill-gated:** `gallery*` reads, `modelzoo-list/detail/price`, `pick-modelzoo-*`, `info`, `model-detail`, `app-md`, `modelzoo-md`. The platform serves them anonymously; the skill asks for a key as a safety default.
+
+
+## Output URL caveats
+
+- Most land in BizyAir's own OSS (`bizyair-prod.oss-cn-shanghai.aliyuncs.com` / `storage.bizyair.ai`)
+- Some channel variants land in third-party temporary storage (`tempfile.aiquickdraw.com` / `s3.6scloud.com`)
+- AI app tasks have `expired_at` (expires after ~15 days)
+- **Download promptly; never rely on the original URL staying accessible forever**
+
+## API Key display
+
+Keys in responses are always masked: `sk-wmul****...phzh`. Keep the same format when the skill displays its own key.
 
 ## cancel / interrupt
 
-webapp 和 modelzoo 都没有公开的 cancel 端点（404）。用户问怎么取消时告知"BizyAir 公开 API 不支持取消"。
+Neither webapp nor modelzoo has a public cancel endpoint (404). When a user asks how to cancel, say "the BizyAir public API does not support cancellation".

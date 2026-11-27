@@ -1,15 +1,15 @@
-"""卡片解析回流 + 参数状态判定。
+"""Card parsing round-trip + parameter state decisions.
 
-合并路 A / 路 B 之后，card.py 不再渲染卡片（渲染由 remote.build_remote_prefilled_card
-统一接管），只负责：
-  - parse_card_text:           把用户填好的卡片字符串 → 字段 dict
-  - compile_card_selection:    字段 dict → args.aspect_ratio / resolution 等
-  - apply_compiled_selection:  把上面结果写回 argparse.Namespace
-  - determine_parameter_state: 判断当前是 ready_to_run / awaiting_confirmation / missing_required
-  - inherit_previous_run:      "跟刚才一样" 这种续跑场景，从 runtime_state 拷贝上轮参数
-  - has_explicit_run_authorization / allows_explicit_defaults: 用户口令识别（"开跑" / "默认"）
+After merging path A / path B, card.py no longer renders cards (rendering is fully
+handled by remote.build_remote_prefilled_card); it only does:
+  - parse_card_text:            turn the card text the user filled in → field dict
+  - compile_card_selection:     field dict → args.aspect_ratio / resolution etc.
+  - apply_compiled_selection:   write the result above back into argparse.Namespace
+  - determine_parameter_state:  decide whether we are ready_to_run / awaiting_confirmation / missing_required
+  - inherit_previous_run:      for resume cases like "same as before", copy the previous run's parameters from runtime_state
+  - has_explicit_run_authorization / allows_explicit_defaults: recognize user phrases ("run it" / "default")
 
-被 dispatch.py 主流程和 batch.py 共用。
+Shared by the dispatch.py main flow and batch.py.
 """
 from __future__ import annotations
 import argparse, re
@@ -33,6 +33,109 @@ def build_prompt_bundle_for_model(model: str | None, args: argparse.Namespace) -
     return bundle
 
 
+def collect_modelzoo_params(slug: str, args: argparse.Namespace) -> dict[str, str]:
+    """Collect dispatch / batch args into ModelZoo user_params.
+
+    Only values the user supplied explicitly are collected; no hardcoded defaults are
+    injected (defaults are filled in by the remote detail's field_value inside
+    build_task_payload).
+
+    A --param without `=` / with an empty key raises modelzoo.ParamError; callers turn
+    that into exit code 2 uniformly.
+    """
+    import modelzoo
+
+    params: dict[str, str] = {}
+    prompt_bundle = build_prompt_bundle_for_model(slug, args)
+    execution_prompt = prompt_bundle.get('execution_prompt', '') or (getattr(args, 'prompt', None) or '')
+    if execution_prompt:
+        params['prompt'] = execution_prompt
+    if getattr(args, 'aspect_ratio', None):
+        params['aspect_ratio'] = str(args.aspect_ratio)
+    if getattr(args, 'resolution', None):
+        params['resolution'] = str(args.resolution)
+    if getattr(args, 'steps', None):
+        params['steps'] = str(args.steps)
+    if getattr(args, 'duration', None):
+        params['duration'] = str(args.duration)
+    if getattr(args, 'seed', None):
+        params['seed'] = str(args.seed)
+    elif getattr(args, 'random_seed', False):
+        params['seed'] = '-1'
+    if getattr(args, 'model_name', None):
+        params['model_name'] = str(args.model_name)
+    if getattr(args, 'width', None):
+        params['width'] = str(args.width)
+    if getattr(args, 'height', None):
+        params['height'] = str(args.height)
+    raw_params = getattr(args, 'param', None) or []
+    parsed, issues = modelzoo.parse_param_pairs(raw_params)
+    if issues:
+        raise modelzoo.ParamError(issues)
+    params.update(parsed)
+    return params
+
+
+def _prefill_current(param: dict, user_params: dict) -> tuple[object, bool]:
+    """Return (display value, whether the user supplied it explicitly). A missing required customtext does not show the vendor example."""
+    field_name = str(param.get('field_name') or '')
+    field_type = str(param.get('field_type') or '').lower()
+    if field_name in user_params:
+        return user_params[field_name], True
+    if field_type == 'customtext' and param.get('required'):
+        return '', False
+    return param.get('field_value'), False
+
+
+def render_modelzoo_param_lines(input_params: list[dict], user_params: dict) -> list[str]:
+    """Render the remote input_params + user parameters as Markdown parameter lines (shared by the single-task card and the batch card)."""
+    lines: list[str] = []
+    for param in input_params:
+        field_name = param.get('field_name')
+        if not field_name:
+            continue
+        field_label = param.get('field_label') or field_name
+        field_type = str(param.get('field_type') or '').lower()
+        options = param.get('field_options') if isinstance(param.get('field_options'), dict) else {}
+        current, provided = _prefill_current(param, user_params)
+        default_value = param.get('field_value')
+        suffix = '' if provided else (' (default)' if default_value not in (None, '', []) else '')
+
+        if field_type == 'customtext':
+            display = str(current or '') if current else ('(enter a value)' if param.get('required') else '(optional, leave blank)')
+            if len(display) > 80:
+                display = display[:80] + '...'
+            lines.append(f'- **{field_label}**: {display}')
+        elif field_type == 'combo':
+            values = [str(item) for item in (options.get('values') or [])]
+            values_str = ' / '.join(values[:8])
+            if len(values) > 8:
+                values_str += ' / ...'
+            display = str(current) if current not in (None, '') else 'default'
+            lines.append(f'- **{field_label}**: {display}{suffix} (options: {values_str})')
+        elif field_type in ('number', 'slider', 'slides'):
+            display = current if current not in (None, '') else 'default'
+            lines.append(f'- **{field_label}**: {display}{suffix}')
+        elif field_type == 'seed':
+            display = str(current) if current not in (None, '') else '-1 (random)'
+            lines.append(f'- **{field_label}**: {display}{suffix}')
+        elif field_type == 'boolean':
+            display = current if current is not None else default_value
+            lines.append(f'- **{field_label}**: {display}{suffix}')
+        else:
+            display = current if current not in (None, '') else (default_value if default_value not in (None, '') else '')
+            lines.append(f'- **{field_label}**: {display}{suffix}')
+    return lines
+
+
+def build_modelzoo_prefill_card(model_name: str, endpoint: str, input_params: list[dict], user_params: dict) -> str:
+    lines = [f'## {model_name} parameter confirmation', '', f'- **endpoint**: `{endpoint}`']
+    lines.extend(render_modelzoo_param_lines(input_params, user_params))
+    lines.extend(['', '- **Billing confirmation**: credits are charged only on submit; one confirmation submits once. If you are not happy with the result, look at the output first and do not rerun automatically; a rerun requires a new confirmation.'])
+    lines.extend(['', 'Once the parameters are confirmed, add `--confirm-run` to start execution.'])
+    return '\n'.join(lines)
+
+
 def has_explicit_tuning(args: argparse.Namespace) -> bool:
     return any([bool(args.card_input), bool(args.aspect_ratio), bool(args.resolution), bool(args.steps), bool(args.duration), bool(args.seed), bool(args.random_seed), bool(args.model_name), bool(args.width), bool(args.height), bool(args.param)])
 
@@ -48,7 +151,8 @@ def allows_explicit_defaults(args: argparse.Namespace) -> bool:
     if args.run_with_defaults:
         return True
     low = collect_intent_text(args)
-    markers = ['默认就行', '默认', '你定', '推荐就行', '都行', '随便', 'auto', 'default']
+    # Chinese entries below are internal input aliases; never displayed.
+    markers = ['\u9ed8\u8ba4\u5c31\u884c', '\u9ed8\u8ba4', '\u4f60\u5b9a', '\u63a8\u8350\u5c31\u884c', '\u90fd\u884c', '\u968f\u4fbf', 'auto', 'default', 'whatever', 'up to you']
     return any((x in low for x in markers))
 
 def has_explicit_run_authorization(args: argparse.Namespace) -> bool:
@@ -156,7 +260,8 @@ def parse_card_text(card_text: str) -> dict[str, str]:
 
 def is_defaultish(value: str | None) -> bool:
     low = dispatch_common.normalized_text(value)
-    return low in {'', '默认', '你定', '推荐就行', '都行', '随便', 'auto', 'default'}
+    # Chinese entries below are internal input aliases; never displayed.
+    return low in {'', '\u9ed8\u8ba4', '\u4f60\u5b9a', '\u63a8\u8350\u5c31\u884c', '\u90fd\u884c', '\u968f\u4fbf', 'auto', 'default', 'whatever', 'up to you'}
 
 def coerce_size_to_width_height(value: str) -> tuple[int, int] | None:
     if 'x' in value.lower():
@@ -166,43 +271,48 @@ def coerce_size_to_width_height(value: str) -> tuple[int, int] | None:
     return None
 
 def compile_card_selection(model: str, card_text: str) -> dict:
-    """把用户填好的卡片文本解析成结构化参数。
+    """Parse the card text the user filled in into structured parameters.
 
-    三段式逻辑（顺序很重要，别乱动）：
-      1) 用户在卡片字段里明确填的值       —— 最高优先级
-      2) "其他补充" 里的自然语言推断       —— 仅对用户没填的字段生效
-      3) COMPILER_RULES.defaults 兜底     —— 仅在前两步都没设的字段上生效
+    Three-stage logic (the order matters, do not shuffle it):
+      1) values the user typed explicitly into card fields   -- highest priority
+      2) natural-language inference from "other notes"       -- applies only to fields the user left empty
+      3) COMPILER_RULES.defaults fallback                    -- currently always empty; real defaults come from the remote
+                                                                detail's field_value when the payload is built
 
-    曾经 defaults 是在最前面灌的，导致用户在"其他补充"里写"横版高清"时
-    aspect_ratio 已经被 default 填成了 1:1，notes 推断条件
-    `not compiled.get('aspect_ratio')` 永远是 False，自然语言推断完全不工作。
-    所以 reorder 之后这个顺序必须保持。
+    Defaults used to be applied first, so when the user wrote "landscape HD" in
+    "other notes", aspect_ratio had already been filled with the default 1:1 and the
+    notes inference condition `not compiled.get('aspect_ratio')` was always False, which
+    made natural-language inference completely dead. That is why this order must stay
+    after the reorder.
 
-    seed 的特殊 guard：如果用户/notes 已经选了"随机"（random_seed=True），
-    最后一步不要再用 defaults 里的固定 seed 把意图压回去。
+    Special seed guard: if the user/notes already chose "random" (random_seed=True),
+    the last step must not push the fixed default seed back over that intent.
     """
     rule = COMPILER_RULES.get(model, {})
     parsed = parse_card_text(card_text)
-    compiled = {'prompt': parsed.get('提示词', ''), 'images': [], 'audios': [], 'aspect_ratio': None, 'resolution': None, 'duration': None, 'seed': None, 'random_seed': False, 'model_name': None, 'width': None, 'height': None, 'params': [], 'notes': parsed.get('其他补充', '')}
+    # The Chinese card labels below (prompt / notes) are internal input aliases; never displayed.
+    compiled = {'prompt': parsed.get('prompt') or parsed.get('\u63d0\u793a\u8bcd') or '', 'images': [], 'audios': [], 'aspect_ratio': None, 'resolution': None, 'duration': None, 'seed': None, 'random_seed': False, 'model_name': None, 'width': None, 'height': None, 'params': [], 'notes': parsed.get('notes') or parsed.get('\u5176\u4ed6\u8865\u5145') or ''}
 
-    # 卡片字段名的中英别名表。用户回 "图片比例：3:2" / "aspect_ratio: 3:2" / "画面比例：3:2" 都识别。
+    # Chinese/English alias table for card field names, so a Chinese ratio line and an English
+    # "aspect_ratio: 3:2" line are both recognized. The Chinese entries are internal input
+    # aliases; never displayed.
     keys_to_map = {
-        'aspect_ratio': ['aspect_ratio', '比例', '视频比例', '画面比例', '图片比例'],
-        'resolution': ['resolution', '规格', '清晰度', '图片质量', '图片规格', '画面规格', '视频尺寸', '图片尺寸'],
-        'duration': ['duration', '时长', '视频时长'],
-        'model_name': ['model_name', '模型档位'],
-        'seed': ['seed', '随机性', '固定seed'],
-        'width': ['width', '宽度'],
-        'height': ['height', '高度'],
+        'aspect_ratio': ['aspect_ratio', 'aspect ratio', 'ratio', '\u6bd4\u4f8b', '\u89c6\u9891\u6bd4\u4f8b', '\u753b\u9762\u6bd4\u4f8b', '\u56fe\u7247\u6bd4\u4f8b'],
+        'resolution': ['resolution', 'quality', '\u89c4\u683c', '\u6e05\u6670\u5ea6', '\u56fe\u7247\u8d28\u91cf', '\u56fe\u7247\u89c4\u683c', '\u753b\u9762\u89c4\u683c', '\u89c6\u9891\u5c3a\u5bf8', '\u56fe\u7247\u5c3a\u5bf8'],
+        'duration': ['duration', 'length', '\u65f6\u957f', '\u89c6\u9891\u65f6\u957f'],
+        'model_name': ['model_name', 'model', '\u6a21\u578b\u6863\u4f4d'],
+        'seed': ['seed', 'randomness', '\u968f\u673a\u6027', '\u56fa\u5b9aseed'],
+        'width': ['width', '\u5bbd\u5ea6'],
+        'height': ['height', '\u9ad8\u5ea6'],
     }
 
-    # 1) 先解析用户在卡片字段里填的值（最高优先级）
+    # 1) First parse the values the user typed into card fields (highest priority)
     for target, aliases in keys_to_map.items():
         for alias in aliases:
             val = parsed.get(normalize_field_name(alias))
             if val and not is_defaultish(val):
                 if target == 'seed':
-                    if '随机' in str(val) or str(val).lower() == 'random':
+                    if '\u968f\u673a' in str(val) or str(val).lower() == 'random':  # internal input alias; never displayed
                         compiled['random_seed'] = True
                         compiled['seed'] = None
                     elif str(val).isdigit():
@@ -217,34 +327,37 @@ def compile_card_selection(model: str, card_text: str) -> dict:
                     compiled[target] = val
                 break
 
-    # 2) 再看"其他补充"里的自然语言推断（仅对用户没填的字段生效）
+    # 2) Then infer from natural language in "other notes" (only for fields the user left empty).
+    #    The Chinese markers below are internal input aliases; never displayed.
     notes = dispatch_common.normalized_text(compiled.get('notes') or '')
     if notes:
-        if '横' in notes and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
+        if ('\u6a2a' in notes or 'landscape' in notes) and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
             compiled['aspect_ratio'] = '16:9'
-        if '竖' in notes and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
+        if ('\u7ad6' in notes or 'portrait' in notes) and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
             compiled['aspect_ratio'] = '9:16'
-        if ('方' in notes or '1:1' in notes) and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
+        if ('\u65b9' in notes or 'square' in notes or '1:1' in notes) and (not compiled.get('aspect_ratio')) and (not compiled.get('width')):
             compiled['aspect_ratio'] = '1:1'
         if compiled.get('duration') is None:
-            if '10秒' in notes or '10 秒' in notes:
+            # internal input alias; never displayed
+            if '10\u79d2' in notes or '10 \u79d2' in notes or '10s' in notes or '10 s' in notes:
                 compiled['duration'] = 10
-            elif '8秒' in notes or '8 秒' in notes:
+            elif '8\u79d2' in notes or '8 \u79d2' in notes or '8s' in notes or '8 s' in notes:
                 compiled['duration'] = 8
-            elif '5秒' in notes or '5 秒' in notes:
+            elif '5\u79d2' in notes or '5 \u79d2' in notes or '5s' in notes or '5 s' in notes:
                 compiled['duration'] = 5
-            elif '3秒' in notes or '3 秒' in notes:
+            elif '3\u79d2' in notes or '3 \u79d2' in notes or '3s' in notes or '3 s' in notes:
                 compiled['duration'] = 3
-        if '随机' in notes and compiled.get('seed') is None and (not compiled.get('random_seed')):
+        if ('\u968f\u673a' in notes or 'random' in notes) and compiled.get('seed') is None and (not compiled.get('random_seed')):
             compiled['random_seed'] = True
-        if '高清' in notes or 'high' in notes or 'large' in notes:
+        if '\u9ad8\u6e05' in notes or 'high' in notes or 'large' in notes or 'hd' in notes:  # internal input alias; never displayed
             for (idx, item) in enumerate(list(compiled['params'])):
                 if item.startswith('60:BizyAir_Sora_V2_T2V_API.size='):
                     compiled['params'][idx] = '60:BizyAir_Sora_V2_T2V_API.size=large'
             if model == 'nano-banana-pro-text' and (not compiled.get('resolution')):
                 compiled['resolution'] = '2K'
 
-    # 3) 最后用 COMPILER_RULES.defaults 填空缺：仅在用户没填、notes 也没推断的字段上生效
+    # 3) COMPILER_RULES.defaults is currently always empty (defaults now come from the remote
+    #    schema); this logic is kept for future fields that really do need a local fallback.
     for (key, value) in (rule.get('defaults') or {}).items():
         if key == 'params':
             existing_param_keys = {p.split('=', 1)[0] for p in compiled['params'] if '=' in p}
@@ -252,7 +365,7 @@ def compile_card_selection(model: str, card_text: str) -> dict:
                 if p_key not in existing_param_keys:
                     compiled['params'].append(f'{p_key}={p_val}')
         elif key == 'seed' and compiled.get('random_seed'):
-            # 用户或推断已选随机 → 不要再灌固定 seed 默认值把意图压回去
+            # The user or the inference already chose random → do not push a fixed seed back over it
             continue
         elif compiled.get(key) is None:
             compiled[key] = value

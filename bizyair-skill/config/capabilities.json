@@ -1,0 +1,189 @@
+{
+  "_comment": "Intent -> ModelZoo capability map. Prefer dedicated endpoints; when none exists, use search_terms to find general editing endpoints. Never fall back to AI-app search automatically. Chinese aliases are stored as Unicode escapes: they are internal input-matching data, never displayed.",
+  "capabilities": {
+    "background_removal": {
+      "label": "Background removal / cutout",
+      "aliases": [
+        "\u53bb\u6389\u80cc\u666f",
+        "\u53bb\u9664\u80cc\u666f",
+        "\u79fb\u9664\u80cc\u666f",
+        "\u5220\u9664\u80cc\u666f",
+        "\u53bb\u80cc\u666f",
+        "\u80cc\u666f\u79fb\u9664",
+        "\u80cc\u666f\u53bb\u9664",
+        "\u62a0\u56fe",
+        "\u62a0\u51fa",
+        "\u900f\u660e\u5e95",
+        "\u767d\u5e95\u56fe",
+        "\u5546\u54c1\u62a0\u56fe",
+        "\u4ea7\u54c1\u62a0\u56fe",
+        "background removal",
+        "remove background",
+        "remove bg",
+        "rmbg",
+        "background remover",
+        "cutout",
+        "product cutout"
+      ],
+      "search_terms": [
+        "\u62a0\u56fe",
+        "background",
+        "background remover"
+      ],
+      "preferred_endpoints": [
+        "bizyair/image-tools/background-remover"
+      ],
+      "prompt_required": false,
+      "suggested_prompt": "Remove the background completely and keep only the product in the image. Preserve the product shape, color, material and edges exactly; do not add or redesign anything; clean transparent background with no halo.",
+      "fallback_capability": "image_edit",
+      "do_not_search_apps": true,
+      "dedicated_endpoints": [
+        "bizyair/image-tools/background-remover"
+      ]
+    },
+    "image_edit": {
+      "label": "Image editing / image-to-image",
+      "aliases": [
+        "\u4fee\u56fe",
+        "\u6539\u56fe",
+        "\u56fe\u7247\u7f16\u8f91",
+        "\u7f16\u8f91",
+        "\u6362\u80cc\u666f",
+        "\u5c40\u90e8\u91cd\u7ed8",
+        "\u91cd\u7ed8",
+        "\u5546\u54c1\u7cbe\u4fee",
+        "\u4ea7\u54c1\u7cbe\u4fee",
+        "inpaint",
+        "retouch",
+        "image edit",
+        "image to image",
+        "\u56fe\u751f\u56fe"
+      ],
+      "search_terms": [
+        "image edit",
+        "image to image",
+        "\u56fe\u751f\u56fe"
+      ],
+      "preferred_endpoints": [
+        "seedream-5-0-flash-official/image-to-image/edit",
+        "qwen-image-2-1-official/image-to-image"
+      ],
+      "prompt_required": true,
+      "suggested_prompt": null,
+      "fallback_capability": null,
+      "do_not_search_apps": true
+    },
+    "image_to_video": {
+      "label": "Image to video",
+      "aliases": [
+        "\u56fe\u751f\u89c6\u9891",
+        "\u56fe\u7247\u52a8\u8d77\u6765",
+        "\u7167\u7247\u52a8\u8d77\u6765",
+        "image to video",
+        "i2v"
+      ],
+      "search_terms": [
+        "image to video",
+        "\u56fe\u751f\u89c6\u9891",
+        "i2v"
+      ],
+      "preferred_endpoints": [
+        "pixverse-v6-official/image-to-video"
+      ],
+      "prompt_required": true,
+      "suggested_prompt": null,
+      "fallback_capability": null,
+      "do_not_search_apps": true
+    },
+    "watermark_removal": {
+      "label": "Watermark removal",
+      "aliases": [
+        "\u53bb\u6c34\u5370",
+        "\u53bb\u9664\u6c34\u5370",
+        "\u6c34\u5370\u79fb\u9664",
+        "watermark removal",
+        "remove watermark",
+        "watermark remover"
+      ],
+      "search_terms": [
+        "watermark",
+        "\u53bb\u6c34\u5370",
+        "watermark remover"
+      ],
+      "preferred_endpoints": [
+        "bizyair/image-tools/watermark-remover"
+      ],
+      "prompt_required": false,
+      "suggested_prompt": null,
+      "fallback_capability": null,
+      "do_not_search_apps": true,
+      "dedicated_endpoints": [
+        "bizyair/image-tools/watermark-remover"
+      ]
+    },
+    "outpaint": {
+      "label": "Outpaint / expand canvas",
+      "aliases": [
+        "\u6269\u56fe",
+        "\u6269\u5c55\u753b\u5e03",
+        "\u6269\u5927\u753b\u5e03",
+        "\u753b\u9762\u6269\u5c55",
+        "\u8865\u573a\u666f",
+        "\u5de6\u53f3\u8865\u573a\u666f",
+        "\u4e0a\u4e0b\u8865\u573a\u666f",
+        "\u5411\u5916\u6269\u5c55",
+        "outpaint",
+        "outpainting",
+        "uncrop",
+        "expand canvas",
+        "expand image"
+      ],
+      "search_terms": [
+        "outpaint",
+        "\u6269\u56fe",
+        "expand canvas"
+      ],
+      "preferred_endpoints": [
+        "bizyair/image-tools/outpaint",
+        "bria-expand-official/image-tools/outpaint"
+      ],
+      "dedicated_endpoints": [
+        "bizyair/image-tools/outpaint",
+        "bria-expand-official/image-tools/outpaint"
+      ],
+      "prompt_required": false,
+      "suggested_prompt": "Expand the scene naturally while preserving the subject, lighting, perspective and edge continuity; do not change the original content or add text.",
+      "fallback_capability": "image_edit",
+      "do_not_search_apps": true
+    },
+    "style_transfer": {
+      "label": "Image style transfer",
+      "aliases": [
+        "\u98ce\u683c\u8fc1\u79fb",
+        "\u56fe\u7247\u98ce\u683c\u8fc1\u79fb",
+        "\u753b\u98ce\u8fc1\u79fb",
+        "\u98ce\u683c\u8f6c\u6362",
+        "\u6362\u753b\u98ce",
+        "\u8f6c\u7ed8",
+        "\u98ce\u683c\u5316",
+        "style transfer",
+        "style migration",
+        "stylize",
+        "img2img"
+      ],
+      "search_terms": [
+        "image edit",
+        "image to image",
+        "qwen image edit"
+      ],
+      "preferred_endpoints": [
+        "seedream-5-0-flash-official/image-to-image/edit",
+        "qwen-image-2-1-official/image-to-image"
+      ],
+      "prompt_required": true,
+      "suggested_prompt": "Apply the reference image's style to the content of the input image: keep the composition, subject and details unchanged; change only brushwork, color, material and overall style; do not change the subject's identity or add text.",
+      "fallback_capability": "image_edit",
+      "do_not_search_apps": true
+    }
+  }
+}
